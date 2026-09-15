@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>口琴工坊 · 功能展示</title>
+<style>
+  :root{
+    --bg:#11141b; --panel:#181d26; --panel2:#1e242f; --border:#2a3240;
+    --text:#d7dee9; --dim:#7f8b9c; --accent:#35d0a5; --accent2:#1f8a6c;
+    --warn:#e0a04a; --danger:#e2606a; --entry:#0e1118; --sel:#2b6cff;
+    --oct-low-bg:#1d3a4d; --oct-low-fg:#79c7ef;
+    --oct-mid-bg:#1c4034; --oct-mid-fg:#5fe0ab;
+    --oct-high-bg:#4a3a1c; --oct-high-fg:#f0b95c;
+    --oct-top-bg:#3d2447; --oct-top-fg:#c98cf0;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:radial-gradient(ellipse at 50% -10%,#1b2432 0%,var(--bg) 55%);
+    color:var(--text); font-family:"Microsoft YaHei UI","PingFang SC",system-ui,sans-serif;
+    line-height:1.65; padding-bottom:80px;
+  }
+  .wrap{max-width:1080px;margin:0 auto;padding:0 20px}
+  .mono{font-family:Consolas,"Cascadia Mono",monospace}
+
+  /* ---------- 通用 ---------- */
+  section{margin-top:52px}
+  h2{font-size:19px;font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:9px}
+  h2 .bar{width:4px;height:19px;background:var(--accent);border-radius:2px}
+  .sub{color:var(--dim);font-size:13px;margin-bottom:18px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  @media(max-width:780px){.grid2,.grid3,.grid4{grid-template-columns:1fr}}
+
+  /* ---------- Hero ---------- */
+  header{padding:56px 0 8px;text-align:center}
+  header h1{font-size:38px;font-weight:700;letter-spacing:2px}
+  header h1 span{color:var(--accent)}
+  header .tag{color:var(--dim);font-size:15px;margin-top:10px}
+  .chips{display:flex;gap:9px;justify-content:center;flex-wrap:wrap;margin-top:20px}
+  .chip{background:var(--panel2);border:1px solid var(--border);border-radius:999px;
+        padding:5px 15px;font-size:12.5px;color:var(--dim)}
+  .chip b{color:var(--accent);font-weight:600}
+  .alert{margin:26px auto 0;max-width:820px;background:#2b1417;border:1px solid #7a2b34;
+         border-left:4px solid #e2606a;border-radius:10px;padding:16px 20px;text-align:left}
+  .alert .h{font-size:15px;font-weight:700;color:#ff8b96;margin-bottom:9px;line-height:1.5}
+  .alert p{font-size:12.5px;color:#d99aa2;line-height:1.75}
+  .alert p + p{margin-top:8px}
+  .alert em{color:#ffb3bb;font-style:normal;font-weight:600}
+  .star-box{margin-top:36px;background:linear-gradient(135deg,#16302b,#141b26);
+            border:1px solid #2f6b58;border-radius:12px;padding:24px;text-align:center}
+  .star-box b{color:var(--accent)}
+  .star-box .big{font-size:16px;font-weight:700;margin-bottom:8px}
+  .star-box p{font-size:12.5px;color:var(--dim);line-height:1.8}
+
+  /* ---------- 模拟窗口 ---------- */
+  .win{background:var(--bg);border:1px solid var(--border);border-radius:10px;overflow:hidden;
+       box-shadow:0 18px 46px rgba(0,0,0,.55)}
+  .win-title{background:#0d1116;padding:8px 14px;font-size:12px;color:var(--dim);
+             border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+  .win-title .dot{width:9px;height:9px;border-radius:50%;background:#39414f}
+  .win-title .dot.a{background:var(--accent)}
+  .win-body{padding:0}
+
+  .navbar{display:flex;align-items:center;gap:4px;background:var(--panel);padding:9px 14px;
+          border-bottom:1px solid var(--border);height:52px}
+  .navbar .brand{font-weight:700;font-size:14px;margin-right:16px}
+  .tab{padding:5px 15px;border-radius:6px;font-size:13px;color:var(--dim);cursor:default}
+  .tab.on{background:var(--panel2);color:var(--accent);font-weight:700}
+  .navbar .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+
+  /* ---------- 按钮 ---------- */
+  .btn{padding:5px 12px;border-radius:6px;font-size:12.5px;border:1px solid var(--border);
+       background:var(--panel2);color:var(--text);cursor:pointer;font-family:inherit;
+       transition:filter .12s,background .12s;white-space:nowrap}
+  .btn:hover{filter:brightness(1.25)}
+  .btn.pri{background:var(--accent2);border-color:var(--accent);color:#eafff8}
+  .btn.dan{background:#4a2228;border-color:var(--danger);color:#ffd9dd}
+  .btn.gh{background:transparent;color:var(--dim)}
+  .btn.sm{padding:3px 9px;font-size:11.5px}
+  .btn[disabled]{opacity:.42;cursor:not-allowed}
+
+  /* ---------- 曲库 ---------- */
+  .lib-head{display:flex;align-items:center;background:var(--panel);padding:12px 14px;
+            border-bottom:1px solid var(--border);gap:10px}
+  .lib-head .t{font-weight:700;font-size:14px}
+  .lib-head .right{margin-left:auto;display:flex;gap:7px}
+  .tune{display:flex;align-items:center;background:var(--panel);border:1px solid var(--border);
+        border-radius:8px;padding:11px 14px;margin:6px 12px;gap:12px;transition:all .16s}
+  .tune.playing{background:var(--panel2);border-color:var(--accent)}
+  .tune .info{flex:1;min-width:0}
+  .tune .name{font-size:14px;font-weight:700}
+  .tune.playing .name{color:var(--accent)}
+  .tune .meta{font-size:11.5px;color:var(--dim);margin-top:2px}
+  .tune .acts{display:flex;gap:6px}
+  .playbar{display:flex;align-items:center;gap:12px;background:var(--panel2);
+           border-top:1px solid var(--border);padding:12px 14px}
+  .playbar .now{font-size:13px;min-width:230px}
+  .pbar{flex:1;height:6px;background:var(--panel);border-radius:3px;overflow:hidden}
+  .pbar i{display:block;height:100%;width:0;background:var(--accent)}
+  .pbar i.run{animation-name:fill;animation-timing-function:linear;
+              animation-fill-mode:forwards;animation-duration:6s}
+  @keyframes fill{from{width:0}to{width:100%}}
+
+  /* ---------- 谱曲 ---------- */
+  .cp-head{display:flex;align-items:center;gap:9px;background:var(--panel);padding:11px 14px;
+           border-bottom:1px solid var(--border);flex-wrap:wrap}
+  .cp-head label{font-size:12.5px;color:var(--dim)}
+  .inp{background:var(--entry);border:1px solid var(--border);border-radius:5px;color:var(--text);
+       padding:5px 10px;font-size:13px;font-family:inherit;width:150px;outline:none}
+  .inp:focus{border-color:var(--accent)}
+  .sep{width:1px;height:22px;background:var(--border);margin:0 5px}
+  .segs{display:flex;gap:3px}
+  .seg{padding:4px 10px;border-radius:5px;font-size:12px;background:var(--panel2);
+       border:1px solid var(--border);color:var(--dim);cursor:pointer}
+  .seg.on{background:var(--accent2);border-color:var(--accent);color:#eafff8;font-weight:700}
+
+  .roll{padding:14px;background:var(--bg)}
+  .bar-row{display:flex;align-items:stretch;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+  .bar{display:flex;align-items:center;background:var(--panel);border:1px solid var(--border);
+       border-radius:7px;padding:6px}
+  .bar .no{width:28px;text-align:center;font-size:11px;color:var(--dim);
+           font-family:Consolas,monospace;font-weight:700}
+  .cells{display:flex;gap:5px}
+  .cell{width:58px;height:68px;border-radius:6px;display:flex;flex-direction:column;
+        align-items:center;justify-content:center;position:relative;cursor:pointer;
+        border:1px solid var(--border);background:var(--panel2);transition:transform .08s}
+  .cell:hover{transform:translateY(-2px)}
+  .cell .dg{font-size:19px;font-weight:700;font-family:"Microsoft YaHei UI",sans-serif}
+  .cell .sf{font-size:9px;font-family:Consolas,monospace;opacity:.85;margin-top:1px}
+  .cell .ky{position:absolute;right:4px;bottom:3px;font-size:8.5px;font-weight:700;
+            font-family:Consolas,monospace;opacity:.9}
+  .cell .oc{position:absolute;left:4px;top:3px;font-size:8.5px;font-weight:700;opacity:.85}
+  .cell.rest .dg{color:#4d5866;font-size:20px}
+  .cell.rest .lb{font-size:8px;color:#3f4a58;position:absolute;bottom:6px}
+  .cell.low{background:var(--oct-low-bg);border-color:var(--oct-low-fg);color:var(--oct-low-fg)}
+  .cell.mid{background:var(--oct-mid-bg);border-color:var(--oct-mid-fg);color:var(--oct-mid-fg)}
+  .cell.high{background:var(--oct-high-bg);border-color:var(--oct-high-fg);color:var(--oct-high-fg)}
+  .cell.top{background:var(--oct-top-bg);border-color:var(--oct-top-fg);color:var(--oct-top-fg)}
+  .cell.sel{outline:2px solid var(--sel);outline-offset:1px}
+  .cp-foot{display:flex;align-items:center;gap:7px;background:var(--panel2);
+           border-top:1px solid var(--border);padding:11px 14px;flex-wrap:wrap}
+  .cp-foot .sp{flex:1}
+
+  /* ---------- 选音面板 ---------- */
+  .picker{margin-top:16px;background:var(--panel);border:1px solid var(--accent);border-radius:11px;
+          padding:16px;max-width:560px}
+  .picker h4{font-size:13px;color:var(--dim);font-weight:500;margin-bottom:10px}
+  .octs{display:flex;gap:6px;margin-bottom:14px}
+  .oct{flex:1;text-align:center;padding:8px 0;border-radius:7px;font-size:13px;font-weight:700;
+       cursor:pointer;border:2px solid transparent;transition:all .12s}
+  .oct.o-low{background:var(--oct-low-bg);color:var(--oct-low-fg)}
+  .oct.o-mid{background:var(--oct-mid-bg);color:var(--oct-mid-fg)}
+  .oct.o-high{background:var(--oct-high-bg);color:var(--oct-high-fg)}
+  .oct.o-top{background:var(--oct-top-bg);color:var(--oct-top-fg)}
+  .oct.on{border-color:#fff}
+  .notes{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+  .note{padding:9px 0;border-radius:8px;text-align:center;cursor:pointer;
+        border:2px solid transparent;transition:all .12s;line-height:1.25}
+  .note:hover{filter:brightness(1.3)}
+  .note.on{border-color:#fff}
+  .note b{display:block;font-size:16px}
+  .note i{display:block;font-size:10px;font-style:normal;opacity:.85;font-family:Consolas,monospace}
+  .note u{display:block;font-size:10.5px;text-decoration:none;font-family:Consolas,monospace;
+          font-weight:700;opacity:.95}
+  .pk-rest{margin-top:12px}
+
+  /* ---------- 设置 ---------- */
+  .set-head{padding:14px 16px 6px}
+  .set-title{font-size:14px;font-weight:700}
+  .set-note{font-size:12px;color:var(--dim);margin-top:3px}
+  .set-body{padding:10px 16px 16px}
+  .keys{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .krow{display:flex;align-items:center;gap:9px}
+  .krow .lb{font-size:12.5px;color:var(--dim);width:56px}
+  .kbtn{background:var(--entry);border:2px solid var(--border);border-radius:6px;
+        padding:6px 0;width:74px;text-align:center;font-family:Consolas,monospace;
+        font-size:13px;font-weight:700;cursor:pointer;transition:all .12s;color:var(--text)}
+  .kbtn:hover{border-color:var(--accent);color:var(--accent)}
+  .kbtn.cap{border-color:var(--accent);color:var(--accent)}
+  .kbtn.dup{border-color:var(--danger);color:var(--danger)}
+  .mods{display:flex;gap:24px;flex-wrap:wrap}
+  .mods .m .ml{font-size:12.5px;color:var(--dim);margin-bottom:5px}
+  .select{background:var(--entry);border:1px solid var(--border);border-radius:5px;
+          padding:6px 10px;font-size:12.5px;color:var(--text);min-width:110px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{text-align:left;color:var(--dim);font-weight:500;font-size:11px;letter-spacing:1px;
+     padding:6px 8px;border-bottom:1px solid var(--border)}
+  td{padding:6px 8px;border-bottom:1px solid #1c222c}
+  tr:hover td{background:#1a212b}
+  .kbd{background:var(--panel2);border:1px solid var(--border);border-bottom-width:2px;
+       border-radius:4px;padding:1px 7px;font-family:Consolas,monospace;font-size:11.5px}
+
+  /* ---------- 键位表 ---------- */
+  .kt{max-height:420px;overflow-y:auto;border:1px solid var(--border);border-radius:10px}
+  .kt::-webkit-scrollbar{width:8px}
+  .kt::-webkit-scrollbar-thumb{background:#2c3542;border-radius:4px}
+  .kt table td:first-child{font-family:Consolas,monospace;font-weight:700}
+  .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;
+        font-family:Consolas,monospace;font-weight:700}
+  .p-low{background:var(--oct-low-bg);color:var(--oct-low-fg)}
+  .p-mid{background:var(--oct-mid-bg);color:var(--oct-mid-fg)}
+  .p-high{background:var(--oct-high-bg);color:var(--oct-high-fg)}
+  .p-top{background:var(--oct-top-bg);color:var(--oct-top-fg)}
+
+  /* ---------- 其它 ---------- */
+  .steps{display:flex;gap:14px;flex-wrap:wrap}
+  .step{flex:1;min-width:210px;background:var(--panel);border:1px solid var(--border);
+        border-radius:11px;padding:16px;position:relative}
+  .step .n{position:absolute;top:-11px;left:16px;width:24px;height:24px;border-radius:50%;
+           background:var(--accent);color:#06231a;font-weight:700;font-size:13px;
+           display:flex;align-items:center;justify-content:center}
+  .step h3{font-size:14px;margin:8px 0 6px}
+  .step p{font-size:12.5px;color:var(--dim)}
+  .tech{background:var(--panel);border:1px solid var(--border);border-radius:11px;padding:15px}
+  .tech h3{font-size:13.5px;margin-bottom:7px;color:var(--accent)}
+  .tech p{font-size:12.5px;color:var(--dim)}
+  code{background:var(--entry);padding:1px 6px;border-radius:4px;font-family:Consolas,monospace;
+       font-size:12px;color:var(--accent)}
+  .tree{background:var(--entry);border:1px solid var(--border);border-radius:10px;padding:16px;
+        font-family:Consolas,monospace;font-size:12px;color:var(--dim);line-height:1.85;
+        white-space:pre;overflow-x:auto}
+  .tree b{color:var(--text)}
+  .tree i{color:var(--accent);font-style:normal}
+  footer{text-align:center;color:var(--dim);font-size:12px;margin-top:60px;
+         padding-top:24px;border-top:1px solid var(--border)}
+</style>
+</head>
+<body>
+
+<header class="wrap">
+  <h1>口琴<span>工坊</span></h1>
+  <p class="tag">三角洲行动 · 口琴自动演奏工具</p>
+  <div class="chips">
+    <span class="chip"><b>零依赖</b> · 只用 Python 标准库</span>
+    <span class="chip"><b>内置 8 首</b> 曲子，点一下就能吹</span>
+    <span class="chip"><b>键位可改</b> · 默认对齐游戏</span>
+    <span class="chip"><b>38 个音高</b> 全覆盖</span>
+  </div>
+  <div class="alert">
+    <div class="h">本项目仅供个人学习、技术研究与娱乐使用<br>
+      严禁在任何在线对局中使用</div>
+    <p><em>风险告知：</em>使用自动化输入工具在在线游戏中可能违反游戏用户协议，
+      可能导致账号被警告、限制功能、临时封禁甚至永久封禁，账号内的虚拟财产与游戏进度可能一并损失。</p>
+    <p><em>作者态度：</em>作者明确不建议、不支持、不鼓励在任何在线对局中使用本项目。
+      开发过程中的全部验证都只在本地环境完成。</p>
+    <p><em>后果自负：</em>因使用本项目产生的一切后果 —— 包括但不限于账号封禁、虚拟财产损失、
+      设备异常、法律纠纷 —— 全部由使用者本人自行承担。作者与贡献者不承担任何责任。</p>
+    <p><em>建议场景：</em>单人模式 · 练习场 · 自定义房间（已征得同意） · 或干脆不进游戏，只跑本地自检来学技术。</p>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- ============ 三步 ============ -->
+  <section>
+    <h2><span class="bar"></span>三步就开始</h2>
+    <p class="sub">不需要懂乐理，也不用准备 MIDI 文件</p>
+    <div class="steps">
+      <div class="step">
+        <span class="n">1</span>
+        <h3>以管理员启动</h3>
+        <p>双击「以管理员启动.bat」。不是管理员的话，游戏收不到模拟按键。</p>
+      </div>
+      <div class="step">
+        <span class="n">2</span>
+        <h3>点一首曲子</h3>
+        <p>曲库页里点曲名右边的「演奏」。第一次运行会自动装好 8 首经典曲子。</p>
+      </div>
+      <div class="step">
+        <span class="n">3</span>
+        <h3>切回游戏</h3>
+        <p>看到倒计时就切到游戏窗口，坐等它自己吹。想停按 <span class="kbd">F8</span>。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 曲库页 ============ -->
+  <section>
+    <h2><span class="bar"></span>曲库页 · 点一下就吹</h2>
+    <p class="sub">当前实际界面 —— 试试点右边的「演奏」，看播放状态长什么样</p>
+
+    <div class="win">
+      <div class="win-title"><span class="dot a"></span><span class="dot"></span><span class="dot"></span>
+        口琴工坊 — 三角洲行动 · 口琴自动演奏</div>
+      <div class="navbar">
+        <span class="brand">口琴工坊</span>
+        <span class="tab on">曲库</span>
+        <span class="tab">谱曲</span>
+        <span class="tab">设置</span>
+        <span class="tab">进阶</span>
+        <span class="right">
+          <span id="navState" style="font-size:12px;color:var(--dim)"></span>
+          <button class="btn gh" id="navStop" disabled>■ 停止演奏 (F8)</button>
+        </span>
+      </div>
+
+      <div class="lib-head">
+        <span class="t">我的曲库</span>
+        <span style="font-size:12px;color:var(--dim)">（8 首）</span>
+        <span class="right">
+          <button class="btn gh">导入曲谱</button>
+          <button class="btn gh">恢复内置曲目</button>
+          <button class="btn pri">新建曲子</button>
+        </span>
+      </div>
+
+      <div id="tuneList"></div>
+
+      <div class="playbar">
+        <span class="now" id="nowPlaying">选一首曲子，点「演奏」就开始</span>
+        <span class="pbar"><i id="pfill"></i></span>
+        <button class="btn dan" id="btnStop" disabled>■ 停止</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 谱曲页 ============ -->
+  <section>
+    <h2><span class="bar"></span>谱曲页 · 点格子编曲子</h2>
+    <p class="sub">每小节 4 拍，每一拍一个格子。点任意格子就能改 —— 下面是真的可以点</p>
+
+    <div class="win">
+      <div class="cp-head">
+        <label>曲名</label>
+        <input class="inp" value="小星星" id="tuneName">
+        <span class="sep"></span>
+        <label>速度</label>
+        <span class="segs" id="bpmSegs">
+          <span class="seg">很慢</span><span class="seg">慢</span>
+          <span class="seg on">中速</span><span class="seg">稍快</span><span class="seg">快</span>
+        </span>
+        <span class="sep"></span>
+        <label>每小节</label>
+        <select class="select" style="min-width:76px"><option>4 拍</option><option>2 拍</option><option>3 拍</option><option>6 拍</option></select>
+        <span style="margin-left:auto;font-size:12px;color:var(--dim)" id="cpHint">4 小节 · 16 个音 · 约 10 秒</span>
+      </div>
+
+      <div class="roll" id="roll"></div>
+
+      <div class="cp-foot">
+        <button class="btn">+ 加一小节</button>
+        <button class="btn gh">- 减一小节</button>
+        <button class="btn gh">清空</button>
+        <span class="sp"></span>
+        <span style="font-size:12px;color:var(--dim)" id="cpMsg"></span>
+        <button class="btn gh" id="btnPreview">试听这一段</button>
+        <button class="btn gh">保存</button>
+        <button class="btn pri" id="btnSavePlay">保存并演奏</button>
+      </div>
+    </div>
+
+    <div class="picker">
+      <h4>选择这一拍的音 —— 先选音高，再点要用的音</h4>
+      <div class="octs" id="octs">
+        <div class="oct o-low"  data-oct="-1">低音</div>
+        <div class="oct o-mid on" data-oct="0">中音</div>
+        <div class="oct o-high" data-oct="1">高音</div>
+        <div class="oct o-top"  data-oct="2">更高</div>
+      </div>
+      <div class="notes" id="noteGrid"></div>
+      <div class="pk-rest"><button class="btn gh" id="pickRest">休止（这一拍不吹）</button></div>
+    </div>
+
+    <p class="sub" style="margin-top:12px">
+      三个贴心设计：格子<b>按音高上色</b>（低音蓝 / 中音绿 / 高音橙 / 更高紫）；
+      格子上<b>直接印着该按哪个键</b>；<b>连续两格填同一个音自动变长音</b>，不用专门设。
+    </p>
+  </section>
+
+  <!-- ============ 设置页 ============ -->
+  <section>
+    <h2><span class="bar"></span>设置页 · 键位想换就换</h2>
+    <p class="sub">默认就是游戏里那套（Z X C V B N M 逗号）。改法：点按钮，再按一下你要用的键</p>
+
+    <div class="win">
+      <div class="navbar">
+        <span class="brand">口琴工坊</span>
+        <span class="tab">曲库</span>
+        <span class="tab">谱曲</span>
+        <span class="tab on">设置</span>
+        <span class="tab">进阶</span>
+        <span class="right"><span style="font-size:12px;color:var(--dim)">就绪</span></span>
+      </div>
+
+      <div class="set-head">
+        <div class="set-title">音键设置</div>
+        <div class="set-note">默认就是游戏里的那套。点下面的按钮，然后按一下你想用的键（试试点 <b>do</b> 那个框）</div>
+      </div>
+      <div class="set-body">
+        <div class="keys" id="keyGrid"></div>
+        <div style="margin-top:14px;font-size:12px;color:var(--dim)" id="keyHint">
+          新键如果已经被别的音占用，两个音会自动对调，不用手动改两次
+        </div>
+      </div>
+
+      <div class="set-head" style="border-top:1px solid var(--border)">
+        <div class="set-title">变调鼠标键</div>
+        <div class="set-note">口琴靠「按住鼠标键」来升降调，可以换键，也可以选「不使用」关掉某一档</div>
+      </div>
+      <div class="set-body">
+        <div class="mods">
+          <div class="m"><div class="ml">降一个八度</div>
+            <select class="select"><option>鼠标左键</option><option>鼠标右键</option><option>鼠标中键</option><option>不使用</option></select></div>
+          <div class="m"><div class="ml">升一个八度</div>
+            <select class="select"><option>鼠标右键</option><option>鼠标左键</option><option>鼠标中键</option><option>不使用</option></select></div>
+          <div class="m"><div class="ml">升半音</div>
+            <select class="select"><option>鼠标中键</option><option>鼠标左键</option><option>鼠标右键</option><option>不使用</option></select></div>
+        </div>
+        <div style="margin-top:12px;font-size:12px;color:var(--dim)">按键不冲突</div>
+      </div>
+
+      <div class="set-head" style="border-top:1px solid var(--border)">
+        <div class="set-title">演奏设置</div>
+        <div class="set-note">游戏里漏音（明明按了却没响）就把节奏档往上调一档</div>
+      </div>
+      <div class="set-body">
+        <table>
+          <thead><tr><th>节奏档</th><th>修饰键提前</th><th>最短按住</th><th>音符间隔</th><th>什么时候用</th></tr></thead>
+          <tbody>
+            <tr><td><b style="color:var(--accent)">稳健</b></td><td>2 帧</td><td>2 帧</td><td>2 帧</td><td>低配机、帧数不稳、漏音严重</td></tr>
+            <tr><td><b>标准</b>（默认）</td><td>1 帧</td><td>1.2 帧</td><td>1 帧</td><td>绝大多数机器够用</td></tr>
+            <tr><td><b>灵敏</b></td><td>0.5 帧</td><td>1 帧</td><td>0.5 帧</td><td>节奏最紧，适合快歌</td></tr>
+          </tbody>
+        </table>
+        <div style="margin-top:14px;font-size:12.5px;color:var(--dim)">
+          开始前倒计时 <span class="kbd">3</span> 秒（留出切到游戏的时间）
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 键位表 ============ -->
+  <section>
+    <h2><span class="bar"></span>全音域键位表</h2>
+    <p class="sub">能吹出来的一共 38 个音高：低音 do ~ 高高音 #do。这张表由程序按当前键位实时算出</p>
+    <div class="kt"><table>
+      <thead><tr><th style="width:110px">音名</th><th style="width:110px">键位</th><th>按键方案</th></tr></thead>
+      <tbody id="ktBody"></tbody>
+    </table></div>
+  </section>
+
+  <!-- ============ 进阶页 ============ -->
+  <section>
+    <h2><span class="bar"></span>进阶页 · 给愿意折腾的人</h2>
+    <p class="sub">默认不加载，点「进阶」标签才创建，不打扰新手</p>
+    <div class="grid3">
+      <div class="tech"><h3>打开 MIDI</h3><p>导入 .mid / .midi / .kar / .rmi，自动挑出主旋律轨（按单音占比、音域跨度打分）</p></div>
+      <div class="tech"><h3>简谱写谱</h3><p>用文本写谱，比点格子快。<code>1 2 3 5 | 6/ 5/ 3 -</code></p></div>
+      <div class="tech"><h3>钢琴卷帘</h3><p>可视化改谱，拖动改音高和时间，双击加音，Delete 删音</p></div>
+      <div class="tech"><h3>存进曲库</h3><p>把导入的 MIDI 旋律量化成格子谱，之后就能像普通曲子一样点播</p></div>
+      <div class="tech"><h3>导出按键表</h3><p>通用 .csv，任何宏工具都能读</p></div>
+      <div class="tech"><h3>导出 G HUB 脚本</h3><p>.lua 脚本，不想跑本程序时可以直接烧进罗技鼠标</p></div>
+    </div>
+  </section>
+
+  <!-- ============ 技术要点 ============ -->
+  <section>
+    <h2><span class="bar"></span>为什么游戏里能真的响</h2>
+    <p class="sub">这类工具最容易翻车的地方，这里都专门处理了</p>
+    <div class="grid2">
+      <div class="tech">
+        <h3>扫描码级注入</h3>
+        <p>很多自动化工具用 <code>keybd_event</code> 或虚拟键码，游戏里完全没反应 ——
+        因为游戏走 RawInput/DirectInput，读的是硬件扫描码。本程序标记
+        <code>KEYEVENTF_SCANCODE</code> 直接投递扫描码，和真实键盘按下时产生的数据包一致。</p>
+      </div>
+      <div class="tech">
+        <h3>帧对齐余量</h3>
+        <p>游戏按渲染帧读键盘。如果鼠标修饰键和音键的按下时间差小于一帧（60FPS ≈ 16.7ms），
+        游戏会读到「修饰键还没生效」那一帧，音就吹错八度甚至不响。所以所有时序参数都以帧为单位，
+        并且<b>最小间隔按物理毫秒算，不随播放速度压缩</b>。</p>
+      </div>
+      <div class="tech">
+        <h3>单声部槽位排布</h3>
+        <p>口琴一次只能发一个音。遇到时间重叠的音符，不能靠缩短前一个音来腾地方
+        （会切出零时长按键，游戏直接吞掉），而是把这个音<b>顺延到前一个音之后</b>，
+        形成互不重叠的槽位。</p>
+      </div>
+      <div class="tech">
+        <h3>八度折叠</h3>
+        <p>超出音域的音会整体平移若干八度落到音域内，<b>同时保持音级关系</b>
+        （比如 E7 → E5）。旋律的调性和走向不会被打乱，比直接丢掉这些音体验好得多。</p>
+      </div>
+      <div class="tech">
+        <h3>修饰键差分切换</h3>
+        <p>连续多个音用同一套修饰键时，只在组合真正变化时才发鼠标事件，
+        既不浪费注入量，也减少抖动。</p>
+      </div>
+      <div class="tech">
+        <h3>零第三方依赖</h3>
+        <p>只用 Python 标准库：<code>ctypes</code> 调 Windows API，<code>tkinter</code> 做界面，
+        MIDI 解析器是自己写的（两遍法解析 + 变速时间轴）。
+        不需要 <code>pip install</code> 任何东西。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 文件结构 ============ -->
+  <section>
+    <h2><span class="bar"></span>文件结构</h2>
+    <p class="sub">整个程序就是这一个文件夹，拷到有 Python 的机器上就能跑</p>
+    <div class="tree"><b>三角洲口琴/</b>
+├─ <i>以管理员启动.bat</i>      ★ 日常用这个
+├─ <i>启动.bat</i>              普通启动
+├─ <i>诊断启动.bat</i>          带控制台，出错能看到原因
+├─ <i>自检.bat</i> / <i>界面自检.bat</i>
+├─ <i>拖拽演奏.bat</i>          把 MIDI 拖到它上面直接吹
+├─ 口琴工坊.py            程序入口（图形界面 + 命令行）
+├─ 键位自测台.html         网页版键位练习，不进游戏也能验证
+├─ 功能展示.html           本页面
+├─ 键位对照表.md
+├─ <b>数据/</b>
+│   ├─ settings.json      你的设置（键位、节奏档…）
+│   └─ <b>曲库/</b>*.json       你自己编和内置的曲子
+├─ <b>kouqin/</b>              核心逻辑
+│   ├─ tune.py            曲子模型 + 曲库
+│   ├─ layout.py          口琴键位模型
+│   ├─ engine.py          演奏时序引擎
+│   ├─ sender.py          键鼠注入
+│   ├─ smf.py             MIDI 读写
+│   └─ …
+├─ <b>gui/</b>                 界面
+│   ├─ library_page.py    曲库页
+│   ├─ composer_page.py   谱曲页
+│   ├─ settings_page.py   设置页
+│   └─ …
+└─ <b>tools/</b>               开发辅助（冒烟测试、验证脚本等）</div>
+  </section>
+
+  <div class="star-box">
+    <div class="big">觉得这个项目对你有帮助？给个 ⭐ <b>Star</b> 吧</div>
+    <p>
+      从第一行到最后一行的全部代码都是手写的，没有引入任何第三方库<br>
+      界面 · 演奏引擎 · 键位算法 · MIDI 解析器 · 简谱解析器 · 连这个网页里的音色都是自己合成的<br>
+      <b>点 Star 完全没有风险</b> —— 它只是给作者的一个鼓励，不会触发任何游戏行为 :)
+    </p>
+  </div>
+
+  <footer>
+    《口琴工坊》· 个人学习娱乐许可 · 详见项目根目录的 <b>DISCLAIMER.md</b> 与 <b>LICENSE</b><br>
+    <span style="color:#a86a72">
+      严禁在任何在线对局中使用　·　请遵守游戏规则，尊重其他玩家，也保护好你自己的账号
+    </span>
+  </footer>
+</div>
+
+<script>
+/* ================= 键位模型（与 layout.py 同源） ================= */
+/* 注意：必须有 8 个元素（do re mi fa sol la si 高do），
+   少写最后一个 12 会导致 C5 以上的音全部算错、音域还少一个音。 */
+const SCALE=[0,2,4,5,7,9,11,12];
+const KEYS=['z','x','c','v','b','n','m',','];
+const KEYNAME={z:'Z',x:'X',c:'C',v:'V',b:'B',n:'N',m:'M',',':','};
+const NAMES=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const SOLFA=['do','re','mi','fa','sol','la','si'];
+const DIGIT=['1','2','3','4','5','6','7'];
+const OCTLABEL={'-1':'低音','0':'中音','1':'高音','2':'更高'};
+const OCTCLASS={'-1':'low','0':'mid','1':'high','2':'top'};
+const MODO={'left':'左','right':'右','middle':'中'};
+
+function pitchName(p){return NAMES[p%12]+(Math.floor(p/12)-1);}
+
+/* 穷举「变调档 × 基础键」，每个音高选修饰键最少的方案。
+   传入 keys 就能按自定义键位重算，和设置页联动。 */
+function buildTable(keys){
+  const best={};
+  const combos=[{o:0,s:0},{o:0,s:1},{o:-12,s:0},{o:12,s:0},{o:-12,s:1},{o:12,s:1}];
+  for(const c of combos){
+    const mods=[];
+    if(c.o===-12)mods.push('left');
+    if(c.o===12)mods.push('right');
+    if(c.s===1)mods.push('middle');
+    mods.sort((a,b)=>['left','right','middle'].indexOf(a)-['left','right','middle'].indexOf(b));
+    const cost=mods.length+(c.o!==0?0.5:0);
+    SCALE.forEach((semi,i)=>{
+      const pitch=60+c.o+c.s+semi;
+      if(!(pitch in best)||cost<best[pitch].cost)best[pitch]={cost,key:keys[i],mods:[...mods]};
+    });
+  }
+  const ps=Object.keys(best).map(Number).sort((a,b)=>a-b);
+  return {map:best,low:ps[0],high:ps[ps.length-1]};
+}
+let TABLE=buildTable(KEYS);
+
+/* 按键显示名：自定义键也得能显示出来，不能只查默认表 */
+function keyLabel(k){return KEYNAME[k]||(k?k.toUpperCase():'?');}
+function tokens(c){const pre=c.mods.map(m=>({left:'L',right:'R',middle:'M'})[m]).join('');
+  return pre?pre+'+'+keyLabel(c.key):keyLabel(c.key);}
+function describe(c){const p=c.mods.map(m=>MODO[m]+'键');
+  p.push(c.key===','?'逗号':keyLabel(c.key));return p.join(' + ');}
+
+/* ================= 音频引擎 ================= */
+/* 用 Web Audio 现场合成，不需要任何音频文件，单文件 HTML 也能出声。
+   音色走「锯齿波 + 低通滤波」，接近簧片/口琴的明亮感，不是干巴巴的正弦波。 */
+
+let audioCtx=null, currentSession=null;
+
+function ensureAudio(){
+  if(!audioCtx){
+    const AC=window.AudioContext||window.webkitAudioContext;
+    if(!AC)return null;
+    audioCtx=new AC();
+  }
+  if(audioCtx.state==='suspended')audioCtx.resume();
+  return audioCtx;
+}
+function midiFreq(m){return 440*Math.pow(2,(m-69)/12);}
+
+/** 一次播放会话：把若干个音排进时间线，可以整体掐断 */
+function newSession(){
+  const ctx=ensureAudio();
+  if(!ctx)return null;
+  const master=ctx.createGain();
+  master.gain.value=0.85;
+  master.connect(ctx.destination);
+  const live=[];
+  return {
+    /** at / dur 单位都是秒 */
+    note(midi,at,dur){
+      const freq=midiFreq(midi);
+      // 两个轻微失谐的振荡器叠在一起，声音更饱满
+      [-4,4].forEach((cents,idx)=>{
+        const osc=ctx.createOscillator();
+        osc.type='sawtooth';
+        osc.frequency.value=freq;
+        osc.detune.value=cents;
+
+        const lp=ctx.createBiquadFilter();
+        lp.type='lowpass';
+        lp.frequency.value=Math.min(6000,1200+freq*3);
+        lp.Q.value=0.8;
+
+        const g=ctx.createGain();
+        const peak=idx===0?0.16:0.09;
+        const hold=Math.max(0.03,dur*0.72);
+        g.gain.setValueAtTime(0.0001,at);
+        g.gain.linearRampToValueAtTime(peak,at+0.012);          // 起音
+        g.gain.setValueAtTime(peak,at+hold);                     // 保持
+        g.gain.exponentialRampToValueAtTime(0.0008,at+dur);      // 收音
+
+        osc.connect(lp); lp.connect(g); g.connect(master);
+        osc.start(at); osc.stop(at+dur+0.06);
+        live.push(osc);
+      });
+    },
+    stop(){
+      live.forEach(o=>{try{o.stop();}catch(e){}});
+      live.length=0;
+      try{master.disconnect();}catch(e){}
+    }
+  };
+}
+function stopAudio(){
+  if(currentSession){currentSession.stop();currentSession=null;}
+}
+
+/* ---- 格子谱 -> 音符（相邻同音自动拼成长音，和桌面端一致） ---- */
+function parseGrid(text){
+  const cells=[];
+  text.replace(/\|/g,' ').split(/\s+/).forEach(tok=>{
+    if(!tok)return;
+    if('0-x.'.includes(tok[0])){cells.push(null);return;}
+    const step=parseInt(tok[0],10)-1;
+    if(step<0||step>6)return;
+    let oct=0;
+    for(const ch of tok.slice(1)){
+      if(ch==="'")oct++;
+      else if(ch===',')oct--;
+    }
+    cells.push({step,octave:Math.max(-1,Math.min(2,oct))});
+  });
+  return cells;
+}
+function cellsToNotes(cells){
+  const notes=[];
+  let i=0;
+  while(i<cells.length){
+    const cur=cells[i];
+    if(!cur){i++;continue;}
+    let j=i+1;
+    while(j<cells.length&&cells[j]&&cells[j].step===cur.step&&cells[j].octave===cur.octave)j++;
+    notes.push({pitch:60+cur.octave*12+SCALE[cur.step],start:i,dur:j-i});
+    i=j;
+  }
+  return notes;
+}
+
+/* ================= 曲库 ================= */
+/* grid 里的谱面与 kouqin/tune.py 的 PRESET_TUNES 完全一致 */
+const TUNES=[
+  {n:'划船歌',p:92,bd:4,g:'5 5 5 3 | 5 5 5 3 | 5 3 5 3 | 2 2 2 0 | 5 5 5 3 | 5 5 5 3 | 5 3 5 3 | 2 2 1 0 |'},
+  {n:'玛丽有只小羊羔',p:96,bd:4,g:'3 2 1 2 | 3 3 3 0 | 2 2 2 0 | 3 5 5 0 | 3 2 1 2 | 3 3 3 3 | 2 2 3 2 | 1 0 0 0 |'},
+  {n:'世上只有妈妈好',p:84,bd:4,g:"6 5 3 3 | 5 6 1' 1' | 5 3 2 2 | 2 3 5 5 | 6 5 3 3 | 5 6 1' 1' | 5 3 2 2 | 1 1 1 0 |"},
+  {n:'欢乐颂',p:112,bd:4,g:'3 3 4 5 | 5 4 3 2 | 1 1 2 3 | 3 3 2 2 | 3 3 4 5 | 5 4 3 2 | 1 1 2 3 | 2 2 1 0 |'},
+  {n:'送别',p:76,bd:4,g:"5 3 5 1' | 7 1' 7 6 | 5 3 5 1' | 7 1' 2' 2' | 5 3 5 1' | 7 1' 7 6 | 5 3 5 2' | 1' 1' 1' 0 |"},
+  {n:'两只老虎',p:108,bd:4,g:'1 2 3 1 | 1 2 3 1 | 3 4 5 5 | 3 4 5 5 | 5 6 5 4 | 3 1 3 1 | 5 6 5 4 | 3 1 3 1 | 2 5 1 1 | 2 5 1 0 |'},
+  {n:'生日快乐',p:100,bd:3,g:"5 5 6 | 5 1' 7 | 5 5 6 | 5 2' 1' | 5 5 5' | 3' 1' 7 | 6 4' 3' | 2' 1' 1' |"},
+  {n:'小星星',p:100,bd:4,g:'1 1 5 5 | 6 6 5 5 | 4 4 3 3 | 2 2 1 1 | 5 5 4 4 | 3 3 2 2 | 5 5 4 4 | 3 3 2 2 | 1 1 5 5 | 6 6 5 5 | 4 4 3 3 | 2 2 1 0 |'},
+];
+TUNES.forEach(t=>{
+  t.cells=parseGrid(t.g);
+  t.notes=cellsToNotes(t.cells);
+  t.bars=t.cells.length/t.bd|0;
+  t.sec=+(t.cells.length*60/t.p).toFixed(1);
+});
+let playing=null;
+let libTimer=null;   // 曲库播放的完成计时
+let cpTimer=null;    // 谱曲页试听的计时（分开，免得互相打断）
+
+/* ---- 纯数据段到此结束（下面开始操作 DOM，自动化检查会截到这里） ---- */
+
+const tuneList=document.getElementById('tuneList');
+const nowPlaying=document.getElementById('nowPlaying');
+const pfill=document.getElementById('pfill');
+const btnStop=document.getElementById('btnStop');
+const navStop=document.getElementById('navStop');
+const navState=document.getElementById('navState');
+
+TUNES.forEach(t=>{
+  const row=document.createElement('div');
+  row.className='tune'; row.dataset.name=t.n;
+  row.innerHTML=`<div class="info">
+      <div class="name">${t.n}</div>
+      <div class="meta">${t.bars} 小节 · ${t.notes.length} 个音 · 约 ${t.sec} 秒 · ${t.p} 拍/分</div>
+    </div>
+    <div class="acts">
+      <button class="btn pri" data-act="play">演奏</button>
+      <button class="btn gh" data-act="edit">编辑</button>
+      <button class="btn gh" data-act="del">删除</button>
+    </div>`;
+  tuneList.appendChild(row);
+});
+
+tuneList.addEventListener('click',e=>{
+  const btn=e.target.closest('button'); if(!btn)return;
+  const row=btn.closest('.tune'); const name=row.dataset.name;
+  if(btn.dataset.act==='play')startPlay(name,row);
+  if(btn.dataset.act==='edit')flash(row,'→ 跳到「谱曲」页编辑');
+  if(btn.dataset.act==='del')flash(row,'（演示页不真的删除）');
+});
+
+/* 真正把曲子排进音频时间线。返回真实播放时长（秒）。 */
+function scheduleTune(tune){
+  const session=newSession();
+  if(!session)return 0;
+  stopAudio();
+  currentSession=session;
+  const spb=60/tune.p;                       // 每拍多少秒
+  const t0=audioCtx.currentTime+0.08;
+  tune.notes.forEach(n=>{
+    // 乘 0.92 留一点缝，相邻同音才听得出是两个音
+    session.note(n.pitch,t0+n.start*spb,n.dur*spb*0.92);
+  });
+  return tune.sec;
+}
+
+function startPlay(name,row){
+  stopPlay();
+  const tune=TUNES.find(t=>t.n===name);
+  if(!tune)return;
+
+  document.querySelectorAll('.tune').forEach(r=>{
+    r.classList.remove('playing');
+    r.querySelector('.name').textContent=r.dataset.name;
+  });
+  playing=name;
+  row.classList.add('playing');
+  row.querySelector('.name').textContent='♪  '+name;
+  nowPlaying.textContent='▶  正在演奏：'+name;
+  nowPlaying.style.color='var(--accent)';
+  btnStop.disabled=false; navStop.disabled=false;
+  navState.textContent='演奏中'; navState.style.color='var(--accent)';
+
+  const sec=scheduleTune(tune);
+  const wait=sec||tune.sec;
+
+  pfill.style.animationDuration=wait+'s';
+  pfill.classList.remove('run'); void pfill.offsetWidth; pfill.classList.add('run');
+  clearTimeout(libTimer);
+  libTimer=setTimeout(()=>{
+    nowPlaying.textContent='✔  演奏完成：'+name;
+    navState.textContent=''; btnStop.disabled=true; navStop.disabled=true;
+    pfill.classList.remove('run'); pfill.style.width='0';
+    playing=null; currentSession=null;
+  },wait*1000+250);
+}
+function stopPlay(){
+  clearTimeout(libTimer); libTimer=null;
+  stopAudio();
+  pfill.classList.remove('run'); pfill.style.width='0';
+  playing=null;
+  document.querySelectorAll('.tune').forEach(r=>{
+    r.classList.remove('playing');
+    r.querySelector('.name').textContent=r.dataset.name;
+  });
+  nowPlaying.textContent='选一首曲子，点「演奏」就开始';
+  nowPlaying.style.color='';
+  btnStop.disabled=true; navStop.disabled=true;
+  navState.textContent='';
+}
+
+/* 单个音试听：独立会话，不打断正在演奏的曲子 */
+function playSingle(midi,dur=0.5){
+  const session=newSession();
+  if(!session)return;
+  session.note(midi,audioCtx.currentTime+0.02,dur);
+  setTimeout(()=>session.stop(),(dur+0.35)*1000);
+}
+function flash(row,msg){
+  nowPlaying.textContent=msg; nowPlaying.style.color='var(--warn)';
+  setTimeout(()=>{if(!playing){nowPlaying.textContent='选一首曲子，点「演奏」就开始';nowPlaying.style.color='';}},1400);
+}
+btnStop.onclick=stopPlay; navStop.onclick=stopPlay;
+
+/* ================= 谱曲 ================= */
+let cells=[];   // {step,octave} 或 null=休止；step 0..6
+let selIndex=null, curOct=0;
+const CP_BPM=90;   // 谱曲页当前速度（对应顶部「中速」）
+// 小星星的前 4 小节：1 1 5 5 | 6 6 5 5 | 4 4 3 3 | 2 2 1 1
+const CELL_DATA=[
+  [0,0],[0,0],[4,0],[4,0],
+  [5,0],[5,0],[4,0],[4,0],
+  [3,0],[3,0],[2,0],[2,0],
+  [1,0],[1,0],[0,0],[0,0]
+];
+cells=CELL_DATA.map(c=>c?{step:c[0],octave:c[1]}:null);
+
+const roll=document.getElementById('roll');
+const noteGrid=document.getElementById('noteGrid');
+const octs=document.getElementById('octs');
+
+function renderRoll(){
+  const bars=[];
+  for(let i=0;i<cells.length;i+=4)bars.push(cells.slice(i,i+4));
+  roll.innerHTML=bars.map((bar,bi)=>{
+    const cs=bar.map((c,ci)=>{
+      const idx=bi*4+ci;
+      if(!c)return `<div class="cell rest ${selIndex===idx?'sel':''}" data-i="${idx}">
+          <span class="dg">·</span><span class="lb">休止</span></div>`;
+      const pitch=60+c.octave*12+SCALE[c.step];
+      const combo=TABLE.map[pitch];
+      return `<div class="cell ${OCTCLASS[c.octave]} ${selIndex===idx?'sel':''}" data-i="${idx}">
+          ${c.octave!==0?`<span class="oc">${OCTLABEL[c.octave][0]}</span>`:''}
+          <span class="dg">${DIGIT[c.step]}</span>
+          <span class="sf">${SOLFA[c.step]}</span>
+          <span class="ky">${combo?tokens(combo):'—'}</span></div>`;
+    }).join('');
+    return `<div class="bar-row"><div class="bar"><span class="no">${bi+1}</span><div class="cells">${cs}</div></div></div>`;
+  }).join('');
+  const areal=cells.filter(Boolean).length;
+  document.getElementById('cpHint').textContent=
+    `${bars.length} 小节 · ${areal} 拍有音 · 约 ${(cells.length*60/90).toFixed(0)} 秒`;
+}
+
+roll.addEventListener('click',e=>{
+  const cell=e.target.closest('.cell'); if(!cell)return;
+  const idx=+cell.dataset.i;
+  selIndex=idx;
+  // 点格子顺手响一下，能立刻听出这个音是高是低
+  const data=cells[idx];
+  if(data)playSingle(60+data.octave*12+SCALE[data.step]);
+  renderRoll(); renderPicker();
+  document.querySelector('.picker').scrollIntoView({behavior:'smooth',block:'nearest'});
+});
+
+function renderPicker(){
+  const fg={'0':'--oct-mid-fg','1':'--oct-high-fg','2':'--oct-top-fg','-1':'--oct-low-fg'}[String(curOct)];
+  const bb={'0':'--oct-mid-bg','1':'--oct-high-bg','2':'--oct-top-bg','-1':'--oct-low-bg'}[String(curOct)];
+  const cur=selIndex!==null?cells[selIndex]:null;
+
+  octs.querySelectorAll('.oct').forEach(o=>o.classList.toggle('on',+o.dataset.oct===curOct));
+
+  noteGrid.innerHTML=SOLFA.map((name,i)=>{
+    const isNow = cur && cur.step===i && cur.octave===curOct;
+    const combo=TABLE.map[60+curOct*12+SCALE[i]];
+    return `<div class="note ${isNow?'on':''}" data-step="${i}"
+        style="background:var(${bb});color:var(${fg})">
+        <b>${DIGIT[i]}</b><i>${name}</i><u>${combo?tokens(combo):'超范围'}</u></div>`;
+  }).join('');
+}
+
+octs.addEventListener('click',e=>{
+  const o=e.target.closest('.oct'); if(!o)return;
+  curOct=+o.dataset.oct; renderPicker();
+});
+
+noteGrid.addEventListener('click',e=>{
+  const n=e.target.closest('.note'); if(!n)return;
+  applyCell({step:+n.dataset.step,octave:curOct});
+});
+
+document.getElementById('pickRest').onclick=()=>applyCell(null);
+
+function cpMsg(text,color){
+  const el=document.getElementById('cpMsg');
+  el.textContent=text||'';
+  el.style.color=color||'var(--dim)';
+}
+
+function applyCell(c){
+  if(c)playSingle(60+c.octave*12+SCALE[c.step]);      // 先出声，听得见才好选
+  if(selIndex===null){
+    cpMsg('先点上面任意一个格子，再选音','var(--warn)');
+    return;
+  }
+  cells[selIndex]=c;
+  selIndex=Math.min(selIndex+1,cells.length-1);
+  renderRoll(); renderPicker();
+  cpMsg('已填入，可以继续点下一个格子');
+}
+
+/** 播放谱曲页当前这一版谱子 */
+function playScore(){
+  const notes=cellsToNotes(cells);
+  if(!notes.length){cpMsg('还没有填任何音','var(--warn)');return;}
+  const session=newSession();
+  if(!session){cpMsg('这个浏览器不支持音频播放','var(--danger)');return;}
+  stopAudio();
+  currentSession=session;
+  const spb=60/CP_BPM;
+  const t0=audioCtx.currentTime+0.06;
+  notes.forEach(n=>session.note(n.pitch,t0+n.start*spb,n.dur*spb*0.92));
+  const sec=(cells.length*spb).toFixed(1);
+  cpMsg('♪ 试听中，约 '+sec+' 秒','var(--accent)');
+  clearTimeout(cpTimer);
+  cpTimer=setTimeout(()=>cpMsg('试听结束','var(--dim)'),sec*1000+250);
+}
+
+document.getElementById('btnPreview').onclick=playScore;
+document.getElementById('btnSavePlay').onclick=()=>{
+  // 演示页不真的落盘，用曲库的播放条展示"点完就能吹"的效果
+  const name=document.getElementById('tuneName').value.trim()||'我的曲子';
+  stopPlay();
+  playing=name;
+  nowPlaying.textContent='▶  正在演奏：'+name+'（演示页未真的保存）';
+  nowPlaying.style.color='var(--accent)';
+  btnStop.disabled=false; navStop.disabled=false;
+  navState.textContent='演奏中'; navState.style.color='var(--accent)';
+
+  const notes=cellsToNotes(cells);
+  const session=newSession();
+  if(session){
+    stopAudio(); currentSession=session;
+    const spb=60/CP_BPM;
+    const t0=audioCtx.currentTime+0.08;
+    notes.forEach(n=>session.note(n.pitch,t0+n.start*spb,n.dur*spb*0.92));
+  }
+  const wait=cells.length*60/CP_BPM;
+  pfill.style.animationDuration=wait+'s';
+  pfill.classList.remove('run'); void pfill.offsetWidth; pfill.classList.add('run');
+  clearTimeout(libTimer);
+  libTimer=setTimeout(()=>{
+    nowPlaying.textContent='✔  演奏完成：'+name;
+    navState.textContent=''; btnStop.disabled=true; navStop.disabled=true;
+    pfill.classList.remove('run'); pfill.style.width='0';
+    playing=null; currentSession=null;
+  },wait*1000+250);
+  cpMsg('已"保存"并开始在曲库播放条演奏','var(--accent)');
+};
+
+document.getElementById('bpmSegs').addEventListener('click',e=>{
+  const s=e.target.closest('.seg'); if(!s)return;
+  document.querySelectorAll('#bpmSegs .seg').forEach(x=>x.classList.remove('on'));
+  s.classList.add('on'); renderRoll();
+});
+
+/* ================= 设置：键位 ================= */
+const LABELS=['1 do','2 re','3 mi','4 fa','5 sol','6 la','7 si','i 高do'];
+const DEFAULT_KEYS=['z','x','c','v','b','n','m',','];
+let setKeys=[...DEFAULT_KEYS];
+const keyGrid=document.getElementById('keyGrid');
+const keyHint=document.getElementById('keyHint');
+
+function renderKeys(){
+  const dup=setKeys.filter((k,i)=>setKeys.indexOf(k)!==i);
+  keyGrid.innerHTML=LABELS.map((lb,i)=>`
+    <div class="krow">
+      <span class="lb">${lb}</span>
+      <span class="kbtn ${dup.includes(setKeys[i])?'dup':''}" data-i="${i}">${KEYNAME[setKeys[i]]||setKeys[i].toUpperCase()}</span>
+    </div>`).join('');
+  keyHint.textContent = dup.length
+    ? '⚠ 有重复的音键，保存时会被拒绝'
+    : '新键如果已经被别的音占用，两个音会自动对调，不用手动改两次';
+  keyHint.style.color = dup.length ? 'var(--danger)' : 'var(--dim)';
+}
+
+keyGrid.addEventListener('click',async e=>{
+  const b=e.target.closest('.kbtn'); if(!b)return;
+  const i=+b.dataset.i;
+  b.classList.add('cap'); b.textContent='按一下键…';
+  const once=new Promise(res=>{
+    const h=ev=>{ev.preventDefault();document.removeEventListener('keydown',h,true);res(ev.key);};
+    document.addEventListener('keydown',h,true);
+  });
+  const key=(await once).toLowerCase();
+  if(key.length!==1&&key!==','){renderKeys();return;}
+  const old=setKeys[i];
+  const other=setKeys.indexOf(key);
+  if(other>=0&&other!==i)setKeys[other]=old;   // 自动对调
+  setKeys[i]=key;
+  TABLE=buildTable(setKeys);                   // 键位一变，整张表重算
+  renderKeys();
+  renderRoll();
+  renderPicker();
+  renderKeyTable();
+  keyHint.textContent=`已把第 ${i+1} 个音改成 ${KEYNAME[key]||key.toUpperCase()}` + (other>=0?`（和原来占用的音自动对调了）`:'');
+  keyHint.style.color='var(--accent)';
+});
+renderKeys();
+
+/* ================= 键位表 ================= */
+function renderKeyTable(){
+  const rows=[];
+  Object.keys(TABLE.map).map(Number).sort((a,b)=>a-b).forEach(p=>{
+    const c=TABLE.map[p];
+    // 按"要按什么修饰键"上色，比按音高分色更能说明问题
+    const oct=c.mods.includes('left')?-1:c.mods.includes('right')?1:0;
+    const cls=oct===-1?'p-low':oct===1?'p-high':(c.mods.includes('middle')?'p-top':'p-mid');
+    rows.push(`<tr><td>${pitchName(p)}</td><td><span class="pill ${cls}">${tokens(c)}</span></td><td style="color:var(--dim)">${describe(c)}</td></tr>`);
+  });
+  document.getElementById('ktBody').innerHTML=rows.join('');
+}
+
+/* ================= 启动 ================= */
+renderRoll();
+renderPicker();
+renderKeyTable();
+</script>
+</body>
+</html>

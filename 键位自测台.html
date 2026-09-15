@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>键位自测台 — 口琴工坊</title>
+<style>
+  :root {
+    --bg: #0f1218;
+    --panel: #171c25;
+    --panel-2: #1e242f;
+    --border: #2a3240;
+    --text: #d7dee9;
+    --dim: #7f8b9c;
+    --accent: #35d0a5;
+    --accent-2: #2b9fd8;
+    --warn: #e0a04a;
+    --danger: #e2606a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: radial-gradient(ellipse at 50% -20%, #1b2432 0%, var(--bg) 60%);
+    color: var(--text);
+    font-family: "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+    min-height: 100vh;
+    padding: 26px 20px 60px;
+  }
+  header { text-align: center; margin-bottom: 22px; }
+  h1 { font-size: 21px; font-weight: 600; letter-spacing: 1px; }
+  h1 span { color: var(--accent); }
+  header p { color: var(--dim); font-size: 13px; margin-top: 7px; }
+
+  .wrap { max-width: 1020px; margin: 0 auto; }
+  .grid { display: grid; grid-template-columns: 1.35fr 1fr; gap: 18px; }
+  @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 13px;
+    padding: 18px;
+  }
+  .card h2 {
+    font-size: 12px; font-weight: 600; color: var(--dim);
+    letter-spacing: 2px; text-transform: uppercase; margin-bottom: 14px;
+  }
+
+  /* 音名显示 */
+  .readout {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 118px; border-radius: 10px;
+    background: linear-gradient(180deg, #10161f, #0c1017);
+    border: 1px solid var(--border);
+    margin-bottom: 16px; position: relative; overflow: hidden;
+  }
+  .readout::after {
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(circle at 50% 120%, rgba(53,208,165,.16), transparent 70%);
+    opacity: 0; transition: opacity .18s;
+  }
+  .readout.on::after { opacity: 1; }
+  .note-name {
+    font-size: 52px; font-weight: 700; letter-spacing: 2px;
+    font-family: Consolas, monospace; transition: color .12s;
+  }
+  .note-name.on { color: var(--accent); }
+  .note-sub {
+    position: absolute; bottom: 12px; left: 0; right: 0;
+    text-align: center; font-size: 12px; color: var(--dim);
+  }
+
+  /* 琴键 */
+  .keys { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; margin-bottom: 16px; }
+  .keycap {
+    aspect-ratio: 1 / 1.15;
+    background: linear-gradient(180deg, #232b38, #1a2029);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-family: Consolas, monospace; font-weight: 700; font-size: 19px;
+    color: var(--text); user-select: none;
+    transition: transform .05s, background .1s, box-shadow .12s;
+    box-shadow: 0 3px 0 #0d1117;
+  }
+  .keycap small { font-size: 10px; color: var(--dim); font-weight: 400; margin-top: 5px; }
+  .keycap.active {
+    background: linear-gradient(180deg, var(--accent), #23a37f);
+    color: #06231a; transform: translateY(3px); box-shadow: 0 0 0 #0d1117;
+  }
+  .keycap.active small { color: #0a3d2d; }
+
+  /* 修饰键 */
+  .mods { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .mod {
+    padding: 15px 8px; border-radius: 10px; text-align: center;
+    background: var(--panel-2); border: 1px solid var(--border);
+    cursor: pointer; user-select: none; transition: all .1s;
+  }
+  .mod b { display: block; font-size: 15px; margin-bottom: 4px; }
+  .mod small { font-size: 11px; color: var(--dim); }
+  .mod.active { background: var(--accent-2); border-color: var(--accent-2); color: #fff; }
+  .mod.active small { color: #d6ecf8; }
+
+  /* 状态条 */
+  .status {
+    margin-top: 16px; padding: 11px 14px; border-radius: 9px;
+    background: #10161f; border: 1px solid var(--border);
+    font-size: 13px; display: flex; justify-content: space-between; align-items: center;
+    font-family: Consolas, monospace;
+  }
+  .status .tag { color: var(--dim); }
+  .status b { color: var(--accent); font-weight: 600; }
+
+  /* 音域表 */
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th {
+    text-align: left; color: var(--dim); font-weight: 500; font-size: 11px;
+    letter-spacing: 1px; padding: 5px 7px; border-bottom: 1px solid var(--border);
+  }
+  td { padding: 5px 7px; border-bottom: 1px solid #1c222c; font-family: Consolas, monospace; }
+  tr:hover td { background: #1a212b; }
+  td.plan { font-family: "Microsoft YaHei UI", sans-serif; color: var(--dim); }
+  .scroll { max-height: 430px; overflow-y: auto; border-radius: 8px; }
+  .scroll::-webkit-scrollbar { width: 8px; }
+  .scroll::-webkit-scrollbar-thumb { background: #2c3542; border-radius: 4px; }
+
+  /* 练习模式 */
+  .quiz-box {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; padding: 13px 15px; border-radius: 10px;
+    background: var(--panel-2); border: 1px solid var(--border); margin-bottom: 16px;
+  }
+  .quiz-box .q { font-size: 14px; }
+  .quiz-box .q b { font-family: Consolas, monospace; font-size: 22px; color: var(--accent-2); }
+  .quiz-box .score { font-family: Consolas, monospace; font-size: 13px; color: var(--dim); }
+  button {
+    background: var(--accent); color: #06231a; border: 0; border-radius: 8px;
+    padding: 9px 17px; font-size: 13px; font-weight: 600; cursor: pointer;
+    font-family: inherit; transition: filter .12s;
+  }
+  button:hover { filter: brightness(1.1); }
+  button.ghost { background: var(--panel); color: var(--text); border: 1px solid var(--border); }
+  .msg { font-size: 13px; min-height: 19px; margin-top: 9px; }
+  .msg.ok { color: var(--accent); }
+  .msg.no { color: var(--danger); }
+  .hint { color: var(--dim); font-size: 12px; line-height: 1.85; }
+  .notice {
+    max-width: 1020px; margin: 0 auto 18px; background: #2b1417;
+    border: 1px solid #7a2b34; border-left: 4px solid var(--danger);
+    border-radius: 9px; padding: 11px 16px; font-size: 12.5px; color: #d99aa2;
+  }
+  .notice b { color: #ff8b96; }
+  .notice-foot {
+    max-width: 1020px; margin: 40px auto 0; padding-top: 20px;
+    border-top: 1px solid var(--border); text-align: center;
+    font-size: 12px; color: var(--dim); line-height: 1.9;
+  }
+  .notice-foot b { color: var(--accent); }
+  kbd {
+    background: var(--panel-2); border: 1px solid var(--border); border-bottom-width: 2px;
+    border-radius: 4px; padding: 1px 6px; font-family: Consolas, monospace; font-size: 11.5px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>口琴 <span>键位自测台</span></h1>
+    <p>不进游戏也能验证按键方案 — 规则与口琴完全一致</p>
+  </header>
+
+  <div class="notice">
+    <b>仅供个人学习、技术研究与娱乐使用　·　严禁在任何在线对局中使用。</b>
+    使用自动化输入工具在在线游戏中可能违反游戏用户协议并导致封号，
+    一切后果由使用者自行承担，作者不承担任何责任。详见项目根目录的 DISCLAIMER.md 与 LICENSE。
+  </div>
+
+  <div class="grid">
+    <!-- 左：交互区 -->
+    <div class="card">
+      <h2>当前发声</h2>
+      <div class="readout" id="readout">
+        <div class="note-name" id="noteName">—</div>
+        <div class="note-sub" id="noteSub">按下任意音键开始</div>
+      </div>
+
+      <div class="keys" id="keys"></div>
+
+      <h2 style="margin-top:6px">鼠标修饰键</h2>
+      <div class="mods">
+        <div class="mod" data-mod="left"><b>左键</b><small>降一个八度</small></div>
+        <div class="mod" data-mod="middle"><b>中键</b><small>升半音</small></div>
+        <div class="mod" data-mod="right"><b>右键</b><small>升一个八度</small></div>
+      </div>
+
+      <div class="status">
+        <span><span class="tag">按键方案 ▸</span> <b id="planText">—</b></span>
+        <span class="tag" id="rangeText">音域 C3 ~ C#6</span>
+      </div>
+
+      <div class="msg" id="msg"></div>
+    </div>
+
+    <!-- 右：练习 + 音域表 -->
+    <div class="card">
+      <h2>听音辨位练习</h2>
+      <div class="quiz-box">
+        <div class="q">请弹出 <b id="quizTarget">—</b></div>
+        <div class="score" id="quizScore">0 / 0</div>
+      </div>
+      <div style="display:flex; gap:9px; margin-bottom:18px">
+        <button id="btnQuiz">开始练习</button>
+        <button class="ghost" id="btnSkip">换一个</button>
+      </div>
+
+      <h2>全音域对照表</h2>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>音名</th><th>键位</th><th>按键方案</th></tr></thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+
+      <p class="hint" style="margin-top:14px">
+        键盘直接按 <kbd>Z</kbd><kbd>X</kbd><kbd>C</kbd><kbd>V</kbd><kbd>B</kbd><kbd>N</kbd><kbd>M</kbd><kbd>,</kbd>，
+        鼠标修饰键可点击上面的按钮，也可以直接按住真实鼠标键。<br>
+        <b style="color:#35d0a5">按下去会真的出声</b>，可以拿来对音准、验证八度对不对。
+      </p>
+    </div>
+  </div>
+
+  <div class="notice-foot">
+    《口琴工坊》· 个人学习娱乐许可 · 详见 DISCLAIMER.md 与 LICENSE<br>
+    觉得有用的话，欢迎在 GitHub 上点一个 ⭐ <b>Star</b> —— 点 Star 完全没有风险 :)<br>
+    <span style="color:#a86a72">请遵守游戏规则，尊重其他玩家，也保护好你自己的账号</span>
+  </div>
+</div>
+
+<script>
+/* ---------------- 规则模型（与桌面端 layout.py 同源） ---------------- */
+
+const SCALE = [0, 2, 4, 5, 7, 9, 11, 12];        // do re mi fa sol la si do
+const KEY_LIST = ["z", "x", "c", "v", "b", "n", "m", ","];
+const KEY_INDEX = { z: 0, x: 1, c: 2, v: 3, b: 4, n: 5, m: 6, ",": 7 };
+const BASE = 60;                                  // 中音 do = C4 = MIDI 60
+const NAMES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+const DEGREE_NAME = ["do","re","mi","fa","sol","la","si","do"];
+
+const MOD_ORDER = ["left", "right", "middle"];
+const MOD_SHORT = { left: "左键", right: "右键", middle: "中键" };
+
+function pitchName(p) { return NAMES[p % 12] + (Math.floor(p / 12) - 1); }
+
+/** 生成全音域可演奏表，并为每个音高挑一个最优方案（修饰键最少） */
+function buildTable() {
+  const best = {};
+  const combos = [
+    { oct: 0,   semi: 0 },
+    { oct: 0,   semi: 1 },
+    { oct: -12, semi: 0 },
+    { oct: 12,  semi: 0 },
+    { oct: -12, semi: 1 },
+    { oct: 12,  semi: 1 },
+  ];
+  for (const c of combos) {
+    const mods = [];
+    if (c.oct === -12) mods.push("left");
+    if (c.oct === 12) mods.push("right");
+    if (c.semi === 1) mods.push("middle");
+    mods.sort((a, b) => MOD_ORDER.indexOf(a) - MOD_ORDER.indexOf(b));
+    const cost = mods.length + (c.oct !== 0 ? 0.5 : 0);
+    SCALE.forEach((semi, step) => {
+      const pitch = BASE + c.oct + c.semi + semi;
+      if (!(pitch in best) || cost < best[pitch].cost) {
+        best[pitch] = { cost, key: KEY_LIST[step], mods: [...mods] };
+      }
+    });
+  }
+  const pitches = Object.keys(best).map(Number).sort((a, b) => a - b);
+  return { map: best, low: pitches[0], high: pitches[pitches.length - 1] };
+}
+
+const TABLE = buildTable();
+
+function comboPlan(combo) {
+  const parts = combo.mods.map(m => MOD_SHORT[m]);
+  parts.push(combo.key === "," ? "逗号" : combo.key.toUpperCase());
+  return parts.join(" + ");
+}
+function comboTokens(combo) {
+  const pre = combo.mods.map(m => ({ left: "L", right: "R", middle: "M" }[m])).join("");
+  const key = combo.key === "," ? "," : combo.key.toUpperCase();
+  return pre ? pre + "+" + key : key;
+}
+/** 当前按键对应的音高；无键按下返回 null */
+function currentPitch() {
+  if (state.key === null) return null;
+  let shift = 0;
+  if (state.mods.has("left")) shift -= 12;
+  if (state.mods.has("right")) shift += 12;
+  if (state.mods.has("middle")) shift += 1;
+  return BASE + shift + SCALE[KEY_INDEX[state.key]];
+}
+
+/* ---------------- 音频：按下去就能听到 ---------------- */
+/* 用 Web Audio 现场合成，不需要任何音频文件 */
+
+let audioCtx = null, lastPitch = null;
+
+function ensureAudio() {
+  if (!audioCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    audioCtx = new AC();
+  }
+  if (audioCtx.state === "suspended") audioCtx.resume();
+  return audioCtx;
+}
+
+/** 口琴感的音色：锯齿波 + 低通滤波，两个轻微失谐的振荡器叠一起 */
+function playNote(midi, dur = 0.55) {
+  const ctx = ensureAudio();
+  if (!ctx) return;
+  const freq = 440 * Math.pow(2, (midi - 69) / 12);
+  const t0 = ctx.currentTime;
+
+  [-4, 4].forEach((cents, idx) => {
+    const osc = ctx.createOscillator();
+    osc.type = "sawtooth";
+    osc.frequency.value = freq;
+    osc.detune.value = cents;
+
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = Math.min(6000, 1200 + freq * 3);
+    lp.Q.value = 0.8;
+
+    const g = ctx.createGain();
+    const peak = idx === 0 ? 0.17 : 0.09;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(peak, t0 + 0.012);
+    g.gain.setValueAtTime(peak, t0 + Math.max(0.03, dur * 0.7));
+    g.gain.exponentialRampToValueAtTime(0.0008, t0 + dur);
+
+    osc.connect(lp); lp.connect(g); g.connect(ctx.destination);
+    osc.start(t0); osc.stop(t0 + dur + 0.06);
+  });
+}
+
+/* ---------------- 状态与渲染 ---------------- */
+
+const state = { key: null, mods: new Set(), quiz: null, quizOn: false, right: 0, total: 0 };
+
+const el = {
+  readout: document.getElementById("readout"),
+  noteName: document.getElementById("noteName"),
+  noteSub: document.getElementById("noteSub"),
+  planText: document.getElementById("planText"),
+  rangeText: document.getElementById("rangeText"),
+  msg: document.getElementById("msg"),
+  keys: document.getElementById("keys"),
+  quizTarget: document.getElementById("quizTarget"),
+  quizScore: document.getElementById("quizScore"),
+  tableBody: document.getElementById("tableBody"),
+};
+
+/* 键盘 */
+KEY_LIST.forEach((key, i) => {
+  const div = document.createElement("div");
+  div.className = "keycap";
+  div.dataset.key = key;
+  div.innerHTML = `${key === "," ? "," : key.toUpperCase()}<small>${DEGREE_NAME[i]}</small>`;
+  div.addEventListener("mousedown", e => { e.preventDefault(); state.key = key; render(); checkQuiz(); });
+  el.keys.appendChild(div);
+});
+document.querySelectorAll(".keycap").forEach(() => {});
+
+/* 鼠标修饰键按钮 */
+document.querySelectorAll(".mod").forEach(node => {
+  const mod = node.dataset.mod;
+  const press = e => { e.preventDefault(); state.mods.add(mod); render(); checkQuiz(); };
+  const release = () => { state.mods.delete(mod); render(); };
+  node.addEventListener("mousedown", press);
+  node.addEventListener("mouseup", release);
+  node.addEventListener("mouseleave", release);
+  node.addEventListener("contextmenu", e => e.preventDefault());
+});
+
+/* 真实鼠标与键盘 */
+window.addEventListener("mousedown", e => {
+  const mod = { 0: "left", 1: "middle", 2: "right" }[e.button];
+  if (mod && e.target.closest(".mod") === null) { state.mods.add(mod); render(); checkQuiz(); }
+});
+window.addEventListener("mouseup", e => {
+  const mod = { 0: "left", 1: "middle", 2: "right" }[e.button];
+  if (mod) { state.mods.delete(mod); render(); }
+});
+window.addEventListener("contextmenu", e => e.preventDefault());
+
+window.addEventListener("keydown", e => {
+  const k = e.key.toLowerCase();
+  if (k in KEY_INDEX && !e.repeat) { state.key = k; render(); checkQuiz(); e.preventDefault(); }
+});
+window.addEventListener("keyup", e => {
+  const k = e.key.toLowerCase();
+  if (k in KEY_INDEX) { state.key = null; render(); }
+});
+window.addEventListener("blur", () => { state.key = null; state.mods.clear(); render(); });
+
+/* 音域表 */
+function renderTable() {
+  const rows = [];
+  Object.keys(TABLE.map).map(Number).sort((a, b) => a - b).forEach(pitch => {
+    const combo = TABLE.map[pitch];
+    rows.push(`<tr><td>${pitchName(pitch)}</td><td>${comboTokens(combo)}</td><td class="plan">${comboPlan(combo)}</td></tr>`);
+  });
+  el.tableBody.innerHTML = rows.join("");
+  el.rangeText.textContent = `音域 ${pitchName(TABLE.low)} ~ ${pitchName(TABLE.high)}`;
+}
+
+function render() {
+  const pitch = currentPitch();
+
+  // 音高发生变化才发声，避免按住时重复触发
+  if (pitch !== null && pitch !== lastPitch) playNote(pitch);
+  lastPitch = pitch;
+
+  document.querySelectorAll(".keycap").forEach(node => {
+    node.classList.toggle("active", node.dataset.key === state.key);
+  });
+  document.querySelectorAll(".mod").forEach(node => {
+    node.classList.toggle("active", state.mods.has(node.dataset.mod));
+  });
+
+  if (pitch === null) {
+    el.noteName.textContent = "—";
+    el.noteName.classList.remove("on");
+    el.readout.classList.remove("on");
+    el.planText.textContent = "—";
+    el.noteSub.textContent = "按下任意音键开始";
+    if (!state.quizOn) el.msg.textContent = "";
+    return;
+  }
+
+  const combo = TABLE.map[pitch];
+  el.noteName.textContent = pitchName(pitch);
+  el.noteName.classList.add("on");
+  el.readout.classList.add("on");
+  el.planText.textContent = combo ? combo.tokens || comboPlan(combo) : "—";
+  el.noteSub.textContent = combo ? comboPlan(combo) : "超出音域";
+}
+
+/* ---------------- 练习模式 ---------------- */
+
+const ALL_PITCHES = Object.keys(TABLE.map).map(Number).sort((a, b) => a - b);
+
+function nextQuiz() {
+  state.quiz = ALL_PITCHES[Math.floor(Math.random() * ALL_PITCHES.length)];
+  el.quizTarget.textContent = pitchName(state.quiz);
+  el.msg.textContent = "";
+  el.msg.className = "msg";
+}
+
+function checkQuiz() {
+  if (!state.quizOn || state.quiz === null) return;
+  const pitch = currentPitch();
+  if (pitch === null) return;
+  if (pitch === state.quiz) {
+    state.right++; state.total++;
+    el.msg.textContent = `✔ 正确！${pitchName(pitch)}`;
+    el.msg.className = "msg ok";
+    updateScore();
+    setTimeout(() => { if (state.quizOn) nextQuiz(); }, 420);
+  } else {
+    state.total++;
+    el.msg.textContent = `✘ 弹成了 ${pitchName(pitch)}，目标是 ${pitchName(state.quiz)}`;
+    el.msg.className = "msg no";
+    updateScore();
+  }
+}
+
+function updateScore() {
+  el.quizScore.textContent = `${state.right} / ${state.total}`;
+}
+
+document.getElementById("btnQuiz").addEventListener("click", () => {
+  state.quizOn = !state.quizOn;
+  state.right = 0; state.total = 0;
+  updateScore();
+  document.getElementById("btnQuiz").textContent = state.quizOn ? "结束练习" : "开始练习";
+  if (state.quizOn) nextQuiz();
+  else { el.quizTarget.textContent = "—"; el.msg.textContent = ""; }
+});
+
+document.getElementById("btnSkip").addEventListener("click", () => {
+  if (state.quizOn) nextQuiz();
+});
+
+/* ---------------- 启动 ---------------- */
+renderTable();
+render();
+</script>
+</body>
+</html>
