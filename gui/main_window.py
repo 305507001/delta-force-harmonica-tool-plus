@@ -132,9 +132,13 @@ class MainWindow(tk.Tk):
             button.pack(side=tk.LEFT, padx=2, pady=10)
             self._tab_buttons[key] = button
 
+        # 帮助按钮放最右边，随时能翻出使用步骤
+        make_button(nav, " ? ", self.show_guide, kind="ghost").pack(
+            side=tk.RIGHT, padx=(4, 14), pady=10)
+
         # 全局停止按钮：任何时候都能按到，出问题不用去翻页面
         self.btn_stop = make_button(nav, "■  停止演奏  (F8)", self.stop, kind="ghost")
-        self.btn_stop.pack(side=tk.RIGHT, padx=(4, 16), pady=10)
+        self.btn_stop.pack(side=tk.RIGHT, padx=(4, 4), pady=10)
         self.btn_stop.configure(state=tk.DISABLED)
 
         self.lbl_nav_status = make_label(nav, "", dim=True)
@@ -451,7 +455,7 @@ class MainWindow(tk.Tk):
     # ================================================================== #
 
     def _startup(self) -> None:
-        """启动流程：先过免责确认，再显示日常提示。"""
+        """启动流程：免责确认 → 首次使用步骤 → 日常提示。"""
         if not self.settings.disclaimer_accepted:
             if not ask_disclaimer(self):
                 # 不同意就直接退出，不留下任何东西
@@ -461,6 +465,18 @@ class MainWindow(tk.Tk):
             self.settings.save()
 
         self._boot_messages()
+
+        # 第一次用的人最需要这个，所以自动弹一次；
+        # 之后随时可以点右上角那个「?」再看
+        if not self.settings.guide_shown:
+            self.settings.guide_shown = True
+            self.settings.save()
+            self.after(260, self.show_guide)
+
+    def show_guide(self) -> None:
+        """弹出使用步骤。"""
+        from .guide import show_guide
+        show_guide(self)
 
     def _boot_messages(self) -> None:
         self.log("─" * 58)

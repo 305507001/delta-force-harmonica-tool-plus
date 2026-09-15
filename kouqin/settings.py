@@ -88,6 +88,7 @@ class AppSettings:
     follow_playhead: bool = True
     installed_presets: bool = False      # 是否已经铺过内置曲目
     disclaimer_accepted: bool = False    # 是否已确认过免责声明
+    guide_shown: bool = False            # 是否已看过使用步骤（只自动弹一次）
 
     # ------------------------------------------------------------------ #
     # 转换与校验
@@ -134,6 +135,7 @@ class AppSettings:
             follow_playhead=self.follow_playhead,
             installed_presets=self.installed_presets,
             disclaimer_accepted=self.disclaimer_accepted,
+            guide_shown=self.guide_shown,
         )
 
     # ------------------------------------------------------------------ #
@@ -154,6 +156,7 @@ class AppSettings:
             "follow_playhead": self.follow_playhead,
             "installed_presets": self.installed_presets,
             "disclaimer_accepted": self.disclaimer_accepted,
+            "guide_shown": self.guide_shown,
         }
 
     @staticmethod
@@ -189,6 +192,7 @@ class AppSettings:
         settings.follow_playhead = bool(data.get("follow_playhead", True))
         settings.installed_presets = bool(data.get("installed_presets", False))
         settings.disclaimer_accepted = bool(data.get("disclaimer_accepted", False))
+        settings.guide_shown = bool(data.get("guide_shown", False))
         return settings
 
     def save(self, path: Optional[str] = None) -> bool:
@@ -221,9 +225,11 @@ class AppSettings:
         """
         keep_presets = self.installed_presets
         keep_disclaimer = self.disclaimer_accepted
+        keep_guide = self.guide_shown
         fresh = AppSettings()
         for attr in ("keys", "mod_assign", "base_octave", "timing", "countdown",
                      "speed", "beats_per_bar", "default_bpm", "follow_playhead"):
             setattr(self, attr, getattr(fresh, attr))
         self.installed_presets = keep_presets
         self.disclaimer_accepted = keep_disclaimer
+        self.guide_shown = keep_guide

@@ -5,8 +5,9 @@ chcp 65001 >nul
 
 if "%~1"=="" (
     echo.
-    echo   用法：把 .mid 文件拖到本文件图标上即可自动演奏
-    echo   也可以先用「启动.bat」在界面里选曲
+    echo   用法：把 .mid 文件拖到本文件图标上，就会自动开始演奏
+    echo.
+    echo   如果想在界面里选曲、编辑曲子，请双击「启动.bat」
     echo.
     pause
     exit /b 0
@@ -21,6 +22,14 @@ echo   完整条款见 DISCLAIMER.md 与 LICENSE
 echo  ==============================================================
 echo.
 
-python -X utf8 "口琴工坊.py" --play "%~1" --countdown 3 --timing normal
+rem 拖拽演奏同样需要管理员权限
+net session >nul 2>&1
+if errorlevel 1 (
+    echo 正在申请管理员权限...
+    powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -ArgumentList '%1' -Verb RunAs"
+    exit /b
+)
+
+python -X utf8 "口琴工坊.py" --play "%~1" --countdown 3
 echo.
 pause

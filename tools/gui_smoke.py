@@ -78,8 +78,9 @@ class Smoke:
         self.window.player.sender = self.sender
         self.window.settings.countdown = 0.0        # 测试不等倒计时
         self.window.settings.speed = 4.0            # 加速演完
-        # 跳过首次运行的免责确认框，否则测试会卡在模态窗口上
+        # 跳过首次运行的免责确认框和使用步骤，否则测试会卡在模态窗口上
         self.window.settings.disclaimer_accepted = True
+        self.window.settings.guide_shown = True
 
         self.failures = []
         self.notes = []
