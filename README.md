@@ -8,6 +8,8 @@
 
 如果你觉得这个项目对你有帮助，欢迎点一个 ⭐ **[Star](https://github.com/2776525655/delta-force-harmonica-tool)** —— 点 Star 完全没有任何风险 :)
 
+**双平台发布** · [GitHub](https://github.com/2776525655/delta-force-harmonica-tool) ｜ [码云 Gitee（三角洲口琴工具-自动口琴脚本）](https://gitee.com/chenshusen/delta-force-harmonica-tool)
+
 </div>
 
 ---
@@ -431,6 +433,8 @@ python tools/make_demos.py            # 重新生成示例 MIDI
 "为什么这样做"而不只是"做了什么"。
 
 如果它帮你搞懂了什么（哪怕只是一点点），欢迎在 GitHub 上点一个 ⭐ **[Star](https://github.com/2776525655/delta-force-harmonica-tool)**。
+
+国内访问更快的镜像：[码云 Gitee · 三角洲口琴工具-自动口琴脚本](https://gitee.com/chenshusen/delta-force-harmonica-tool)
 
 **点 Star 是完全没有风险的** —— 它只是给作者的一个鼓励，不会触发任何游戏行为 :)
 
