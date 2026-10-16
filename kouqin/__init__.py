@@ -27,6 +27,7 @@
     preview    MCI 本地试听
     jianpu     简谱文本解析
     exporter   CSV / Lua / 键位表导出
+    online     在线曲库（只读：Dr-hydra 公开曲库，DFHS1 谱面解码）
 
 最简用法（直接用曲库里的曲子演奏）::
 
@@ -103,7 +104,7 @@ from .exporter import (
     export_lua,
 )
 
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 
 __all__ = [
     # 曲子与曲库

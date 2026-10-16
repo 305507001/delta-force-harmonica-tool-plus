@@ -155,6 +155,7 @@ class SettingsPage(tk.Frame):
         self._build_mods_card(holder)
         self._build_play_card(holder)
         self._build_overlay_card(holder)
+        self._build_online_card(holder)
         self._build_compose_card(holder)
         self._build_actions(holder)
 
@@ -389,6 +390,26 @@ class SettingsPage(tk.Frame):
             self.lbl_adjust.configure(text="位置已保存。锁定后鼠标点击会直接穿透到游戏",
                                       fg=Palette["text_dim"])
 
+    def _build_online_card(self, parent) -> None:
+        from kouqin.online import DEFAULT_BASE, SOURCE_NAME
+        body = self._card(
+            parent, "在线曲库",
+            f"曲库页的「在线曲库」读的是 {SOURCE_NAME}：曲谱由玩家上传，版权归原作者；"
+            "本程序只读，点开哪首才下载哪首，不上传任何数据。",
+        )
+        row = tk.Frame(body, bg=Palette["panel"])
+        row.pack(fill=tk.X)
+        make_label(row, "曲库地址").pack(side=tk.LEFT, padx=(0, 8))
+        self.var_online_base = tk.StringVar(value=self.settings.online_library_base or DEFAULT_BASE)
+        tk.Entry(row, textvariable=self.var_online_base, width=70, bg=Palette["entry_bg"],
+                 fg=Palette["text"], insertbackground=Palette["text"], relief=tk.FLAT,
+                 highlightthickness=1, highlightbackground=Palette["border"],
+                 highlightcolor=Palette["accent"], font=("Consolas", 9)).pack(side=tk.LEFT, ipady=3)
+        make_button(row, "恢复默认", lambda: self.var_online_base.set(DEFAULT_BASE),
+                    kind="ghost").pack(side=tk.LEFT, padx=8)
+        make_label(body, "曲库搬家时把新地址填在这里（地址末尾一般是 /harmonica）；改完点「保存设置」，"
+                         "再到在线曲库点「刷新目录」。", dim=True).pack(anchor="w", pady=(8, 0))
+
     def _build_compose_card(self, parent) -> None:
         body = self._card(parent, "谱曲默认值", "新建曲子时用这些参数，已保存的曲子不受影响。")
 
@@ -532,6 +553,8 @@ class SettingsPage(tk.Frame):
         self.var_alpha.set(round(self.settings.overlay_alpha * 100))
         self.var_anchor.set(self._anchor_label(self.settings.overlay_anchor))
         self.var_legato.set(self.settings.legato)
+        from kouqin.online import DEFAULT_BASE
+        self.var_online_base.set(self.settings.online_library_base or DEFAULT_BASE)
         self.lbl_alpha.configure(text=f"{self.settings.overlay_alpha * 100:.0f}%")
         self._check_keys()
         self._on_mod_changed()
@@ -614,6 +637,12 @@ class SettingsPage(tk.Frame):
 
         self._collect_overlay()
         self.settings.legato = bool(self.var_legato.get())
+        from kouqin.online import DEFAULT_BASE
+        base = self.var_online_base.get().strip().rstrip("/")
+        if base.lower().startswith(("https://", "http://")) and base != DEFAULT_BASE:
+            self.settings.online_library_base = base
+        else:
+            self.settings.online_library_base = ""
 
     def _save(self) -> None:
         self.cancel_capture()

@@ -132,6 +132,9 @@ class AppSettings:
     overlay_x: Optional[int] = None     # 拖动过的位置（overlay_anchor 为 custom 时用）
     overlay_y: Optional[int] = None
 
+    # --- 在线曲库 ---
+    online_library_base: str = ""       # 空 = 用默认地址（kouqin.online.DEFAULT_BASE）
+
     # --- 其它 ---
     follow_playhead: bool = True
     installed_presets: bool = False      # 是否已经铺过内置曲目
@@ -233,6 +236,9 @@ class AppSettings:
         elif settings.overlay_x is not None and settings.overlay_y is not None:
             settings.overlay_anchor = "custom"      # v2.1.0 拖动过位置的老配置
         settings.legato = bool(data.get("legato", True))
+        base = data.get("online_library_base", "")
+        if isinstance(base, str) and base.strip().lower().startswith(("https://", "http://")):
+            settings.online_library_base = base.strip()
         settings.preset_revision = clamp(data.get("preset_revision", 0), 0, 999, 0)
 
         settings.follow_playhead = bool(data.get("follow_playhead", True))
@@ -278,7 +284,8 @@ class AppSettings:
                      "speed", "beats_per_bar", "default_bpm", "follow_playhead",
                      "overlay_in_auto", "guide_wait", "guide_speed", "overlay_lookahead",
                      "overlay_scale", "overlay_alpha", "overlay_keyboard",
-                     "overlay_anchor", "overlay_x", "overlay_y", "legato"):
+                     "overlay_anchor", "overlay_x", "overlay_y", "legato",
+                     "online_library_base"):
             setattr(self, attr, getattr(fresh, attr))
         self.installed_presets = keep_presets
         self.preset_revision = keep_revision

@@ -23,7 +23,8 @@ from kouqin.engine import compile_notes
 from kouqin.practice import difficulty
 from kouqin.tune import Tune
 
-from .theme import Palette, enable_wheel_scroll, make_button, make_label
+from .online_page import OnlinePanel
+from .theme import Palette, add_hover, enable_wheel_scroll, make_button, make_label
 
 
 class LibraryPage(tk.Frame):
@@ -35,6 +36,8 @@ class LibraryPage(tk.Frame):
         self._playing_name: Optional[str] = None
         self._row_widgets: List[tuple] = []
         self._difficulty_cache: Dict[tuple, Tuple[int, str]] = {}
+        self._tab = "local"
+        self.online: Optional[OnlinePanel] = None
 
         self._build()
 
@@ -55,19 +58,62 @@ class LibraryPage(tk.Frame):
         bar.grid(row=0, column=0, sticky="ew")
         bar.grid_propagate(False)
 
-        make_label(bar, "我的曲库", bold=True, size=12).pack(side=tk.LEFT, padx=(14, 8), pady=14)
+        # 两个标签：自己的曲库 / 在线曲库
+        self._tab_buttons: Dict[str, tk.Button] = {}
+        for key, text in (("local", "我的曲库"), ("online", "在线曲库")):
+            button = tk.Button(bar, text=text, command=lambda k=key: self.show_tab(k),
+                               relief=tk.FLAT, bd=0, padx=12, pady=4, cursor="hand2",
+                               highlightthickness=0, activebackground=Palette["panel_alt"],
+                               activeforeground=Palette["text"])
+            button.pack(side=tk.LEFT, padx=(14 if key == "local" else 2, 2), pady=10)
+            add_hover(button)
+            self._tab_buttons[key] = button
         self.lbl_count = make_label(bar, "", dim=True)
-        self.lbl_count.pack(side=tk.LEFT, pady=14)
+        self.lbl_count.pack(side=tk.LEFT, padx=(8, 0), pady=14)
 
-        make_button(bar, "新建曲子", self._new_tune, kind="accent").pack(side=tk.RIGHT, padx=(4, 14), pady=10)
-        make_button(bar, "恢复内置曲目", self._restore_presets, kind="ghost").pack(side=tk.RIGHT, padx=4, pady=10)
-        make_button(bar, "导入曲谱", self._import_tune, kind="ghost").pack(side=tk.RIGHT, padx=4, pady=10)
+        self._local_actions = tk.Frame(bar, bg=Palette["panel"])
+        self._local_actions.pack(side=tk.RIGHT, padx=(4, 10))
+        make_button(self._local_actions, "新建曲子", self._new_tune, kind="accent").pack(side=tk.RIGHT, padx=(4, 4), pady=10)
+        make_button(self._local_actions, "恢复内置曲目", self._restore_presets, kind="ghost").pack(side=tk.RIGHT, padx=4, pady=10)
+        make_button(self._local_actions, "导入曲谱", self._import_tune, kind="ghost").pack(side=tk.RIGHT, padx=4, pady=10)
+        self._paint_tabs()
+
+    def _paint_tabs(self) -> None:
+        for key, button in self._tab_buttons.items():
+            active = key == self._tab
+            button.configure(
+                bg=Palette["panel_alt"] if active else Palette["panel"],
+                fg=Palette["text"] if active else Palette["text_dim"],
+                font=("Microsoft YaHei UI", 12 if active else 11, "bold" if active else "normal"),
+            )
+
+    def show_tab(self, key: str) -> None:
+        """切换「我的曲库」/「在线曲库」。在线曲库第一次打开时才创建、才联网。"""
+        self._tab = key
+        self._paint_tabs()
+        if key == "online":
+            if self.online is None:
+                self.online = OnlinePanel(self, self.app)
+                self.online.grid(row=1, column=0, sticky="nsew")
+            self._local_wrap.grid_remove()
+            self._local_actions.pack_forget()
+            self.lbl_count.configure(text="")
+            self.online.grid()
+            self.online.tkraise()
+            self.online.on_show()
+        else:
+            if self.online is not None:
+                self.online.grid_remove()
+            self._local_wrap.grid()
+            self._local_actions.pack(side=tk.RIGHT, padx=(4, 10))
+            self.refresh()
 
     def _build_list(self) -> None:
         wrap = tk.Frame(self, bg=Palette["bg"])
         wrap.grid(row=1, column=0, sticky="nsew")
         wrap.grid_rowconfigure(0, weight=1)
         wrap.grid_columnconfigure(0, weight=1)
+        self._local_wrap = wrap
 
         self.canvas = tk.Canvas(wrap, bg=Palette["bg"], highlightthickness=0)
         self.canvas.grid(row=0, column=0, sticky="nsew")
@@ -119,7 +165,8 @@ class LibraryPage(tk.Frame):
         self._row_widgets.clear()
 
         names = self.app.library.names()
-        self.lbl_count.configure(text=f"（{len(names)} 首）" if names else "")
+        if self._tab == "local":
+            self.lbl_count.configure(text=f"（{len(names)} 首）" if names else "")
 
         if not names:
             box = tk.Frame(self.inner, bg=Palette["bg"])
