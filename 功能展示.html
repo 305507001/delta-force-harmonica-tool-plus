@@ -152,6 +152,9 @@
   .cell .oc{position:absolute;left:4px;top:3px;font-size:8.5px;font-weight:700;opacity:.85}
   .cell.rest .dg{color:#4d5866;font-size:20px}
   .cell.rest .lb{font-size:8px;color:#3f4a58;position:absolute;bottom:6px}
+  .cell.hold{opacity:.8}
+  .cell.hold .dg{font-size:22px;margin-top:-6px}
+  .cell.hold .lb{font-size:8px;position:absolute;bottom:6px;opacity:.9}
   .cell.low{background:var(--oct-low-bg);border-color:var(--oct-low-fg);color:var(--oct-low-fg)}
   .cell.mid{background:var(--oct-mid-bg);border-color:var(--oct-mid-fg);color:var(--oct-mid-fg)}
   .cell.high{background:var(--oct-high-bg);border-color:var(--oct-high-fg);color:var(--oct-high-fg)}
@@ -411,12 +414,14 @@
         <div class="oct o-top"  data-oct="2">更高</div>
       </div>
       <div class="notes" id="noteGrid"></div>
-      <div class="pk-rest"><button class="btn gh" id="pickRest">休止（这一拍不吹）</button></div>
+      <div class="pk-rest"><button class="btn" id="pickHold">— 延长（接着吹上一个音）</button>
+        <button class="btn gh" id="pickRest">休止（这一拍不吹）</button></div>
     </div>
 
     <p class="sub" style="margin-top:12px">
       三个贴心设计：格子<b>按音高上色</b>（低音蓝 / 中音绿 / 高音橙 / 更高紫）；
-      格子上<b>直接印着该按哪个键</b>；<b>连续两格填同一个音自动变长音</b>，不用专门设。
+      格子上<b>直接印着该按哪个键</b>；想让一个音拖长，后面的格子选<b>「— 延长」</b>，
+      连续两格填同一个音会<b>吹两下</b>（和简谱里的 "-" 一个意思）。
     </p>
   </section>
 
@@ -711,12 +716,14 @@ function stopAudio(){
   if(currentSession){currentSession.stop();currentSession=null;}
 }
 
-/* ---- 格子谱 -> 音符（相邻同音自动拼成长音，和桌面端一致） ---- */
+/* ---- 格子谱 -> 音符（和桌面端一致）：每个音格新吹一下，'-' 延长前一个音，0 休止 ---- */
+const HOLD='H';
 function parseGrid(text){
   const cells=[];
   text.replace(/\|/g,' ').split(/\s+/).forEach(tok=>{
     if(!tok)return;
-    if('0-x.'.includes(tok[0])){cells.push(null);return;}
+    if(tok[0]==='-'){cells.push(HOLD);return;}
+    if('0x.'.includes(tok[0])){cells.push(null);return;}
     const step=parseInt(tok[0],10)-1;
     if(step<0||step>6)return;
     let oct=0;
@@ -733,9 +740,9 @@ function cellsToNotes(cells){
   let i=0;
   while(i<cells.length){
     const cur=cells[i];
-    if(!cur){i++;continue;}
+    if(!cur||cur===HOLD){i++;continue;}      // 前面没有音可接的「延长」当休止
     let j=i+1;
-    while(j<cells.length&&cells[j]&&cells[j].step===cur.step&&cells[j].octave===cur.octave)j++;
+    while(j<cells.length&&cells[j]===HOLD)j++;
     notes.push({pitch:60+cur.octave*12+SCALE[cur.step],start:i,dur:j-i});
     i=j;
   }
@@ -745,14 +752,14 @@ function cellsToNotes(cells){
 /* ================= 曲库 ================= */
 /* grid 里的谱面与 kouqin/tune.py 的 PRESET_TUNES 完全一致 */
 const TUNES=[
-  {n:'划船歌',p:92,bd:4,g:'5 5 5 3 | 5 5 5 3 | 5 3 5 3 | 2 2 2 0 | 5 5 5 3 | 5 5 5 3 | 5 3 5 3 | 2 2 1 0 |'},
-  {n:'玛丽有只小羊羔',p:96,bd:4,g:'3 2 1 2 | 3 3 3 0 | 2 2 2 0 | 3 5 5 0 | 3 2 1 2 | 3 3 3 3 | 2 2 3 2 | 1 0 0 0 |'},
-  {n:'世上只有妈妈好',p:84,bd:4,g:"6 5 3 3 | 5 6 1' 1' | 5 3 2 2 | 2 3 5 5 | 6 5 3 3 | 5 6 1' 1' | 5 3 2 2 | 1 1 1 0 |"},
-  {n:'欢乐颂',p:112,bd:4,g:'3 3 4 5 | 5 4 3 2 | 1 1 2 3 | 3 3 2 2 | 3 3 4 5 | 5 4 3 2 | 1 1 2 3 | 2 2 1 0 |'},
-  {n:'送别',p:76,bd:4,g:"5 3 5 1' | 7 1' 7 6 | 5 3 5 1' | 7 1' 2' 2' | 5 3 5 1' | 7 1' 7 6 | 5 3 5 2' | 1' 1' 1' 0 |"},
-  {n:'两只老虎',p:108,bd:4,g:'1 2 3 1 | 1 2 3 1 | 3 4 5 5 | 3 4 5 5 | 5 6 5 4 | 3 1 3 1 | 5 6 5 4 | 3 1 3 1 | 2 5 1 1 | 2 5 1 0 |'},
-  {n:'生日快乐',p:100,bd:3,g:"5 5 6 | 5 1' 7 | 5 5 6 | 5 2' 1' | 5 5 5' | 3' 1' 7 | 6 4' 3' | 2' 1' 1' |"},
-  {n:'小星星',p:100,bd:4,g:'1 1 5 5 | 6 6 5 5 | 4 4 3 3 | 2 2 1 1 | 5 5 4 4 | 3 3 2 2 | 5 5 4 4 | 3 3 2 2 | 1 1 5 5 | 6 6 5 5 | 4 4 3 3 | 2 2 1 0 |'},
+  {n:'划船歌',p:92,bd:4,g:'5 - - 3 | 5 - - 3 | 5 3 5 3 | 2 - - 0 | 5 - - 3 | 5 - - 3 | 5 3 5 3 | 2 - 1 0 |'},
+  {n:'玛丽有只小羊羔',p:96,bd:4,g:'3 2 1 2 | 3 3 3 - | 2 2 2 - | 3 5 5 - | 3 2 1 2 | 3 3 3 3 | 2 2 3 2 | 1 - - 0 |'},
+  {n:'世上只有妈妈好',p:84,bd:4,g:"6 5 3 - | 5 6 1' - | 5 3 2 - | - 3 5 - | 6 5 3 - | 5 6 1' - | 5 3 2 - | 1 - - 0 |"},
+  {n:'欢乐颂',p:112,bd:4,g:'3 3 4 5 | 5 4 3 2 | 1 1 2 3 | 3 2 2 - | 3 3 4 5 | 5 4 3 2 | 1 1 2 3 | 2 1 1 - |'},
+  {n:'送别',p:76,bd:4,g:"5 3 5 1' | - 6 1' 5 | - 5 1 2 | 3 2 1 2 | - - 0 5 3 5 1' 7 | 6 1' 5 - | 5 2 3 4 7, | 1 - - 0 | 6 1' 1' - | 7 6 7 1' | - 6 7 1' | 6 6 5 3 1 | 2 - - 0 | 5 3 5 1' 7 | 6 1' 5 - | 5 2 3 4 7, | 1 - - 0 |"},
+  {n:'两只老虎',p:108,bd:4,g:'1 2 3 1 | 1 2 3 1 | 3 4 5 - | 3 4 5 - | 5 6 5 4 | 3 - 1 - | 5 6 5 4 | 3 - 1 - | 1 5, 1 - | 1 5, 1 - |'},
+  {n:'生日快乐',p:100,bd:3,g:"5 5 6 | 5 1' 7 | - 5 5 | 6 5 2' | 1' - 5 | 5 5' 3' | 1' 7 6 | 4' 4' 3' | 1' 2' 1' | - - 0 |"},
+  {n:'小星星',p:100,bd:4,g:'1 1 5 5 | 6 6 5 - | 4 4 3 3 | 2 2 1 - | 5 5 4 4 | 3 3 2 - | 5 5 4 4 | 3 3 2 - | 1 1 5 5 | 6 6 5 - | 4 4 3 3 | 2 2 1 - |'},
 ];
 TUNES.forEach(t=>{
   t.cells=parseGrid(t.g);
@@ -872,17 +879,26 @@ function flash(row,msg){
 btnStop.onclick=stopPlay; navStop.onclick=stopPlay;
 
 /* ================= 谱曲 ================= */
-let cells=[];   // {step,octave} 或 null=休止；step 0..6
+let cells=[];   // {step,octave}、null=休止、'H'=延长；step 0..6
 let selIndex=null, curOct=0;
 const CP_BPM=90;   // 谱曲页当前速度（对应顶部「中速」）
-// 小星星的前 4 小节：1 1 5 5 | 6 6 5 5 | 4 4 3 3 | 2 2 1 1
+// 小星星的前 4 小节：1 1 5 5 | 6 6 5 - | 4 4 3 3 | 2 2 1 -
 const CELL_DATA=[
   [0,0],[0,0],[4,0],[4,0],
-  [5,0],[5,0],[4,0],[4,0],
+  [5,0],[5,0],[4,0],'H',
   [3,0],[3,0],[2,0],[2,0],
-  [1,0],[1,0],[0,0],[0,0]
+  [1,0],[1,0],[0,0],'H'
 ];
-cells=CELL_DATA.map(c=>c?{step:c[0],octave:c[1]}:null);
+cells=CELL_DATA.map(c=>c==='H'?HOLD:c?{step:c[0],octave:c[1]}:null);
+
+/** 「延长」格子接的是哪个音（往前找，碰到休止就没有） */
+function heldNote(idx){
+  for(let k=idx-1;k>=0;k--){
+    if(cells[k]===HOLD)continue;
+    return cells[k]||null;
+  }
+  return null;
+}
 
 const roll=document.getElementById('roll');
 const noteGrid=document.getElementById('noteGrid');
@@ -896,6 +912,11 @@ function renderRoll(){
       const idx=bi*4+ci;
       if(!c)return `<div class="cell rest ${selIndex===idx?'sel':''}" data-i="${idx}">
           <span class="dg">·</span><span class="lb">休止</span></div>`;
+      if(c===HOLD){
+        const h=heldNote(idx);
+        return `<div class="cell hold ${h?OCTCLASS[h.octave]:'rest'} ${selIndex===idx?'sel':''}" data-i="${idx}">
+          <span class="dg">—</span><span class="lb">${h?'延长':'延长（无音）'}</span></div>`;
+      }
       const pitch=60+c.octave*12+SCALE[c.step];
       const combo=TABLE.map[pitch];
       return `<div class="cell ${OCTCLASS[c.octave]} ${selIndex===idx?'sel':''}" data-i="${idx}">
@@ -906,9 +927,9 @@ function renderRoll(){
     }).join('');
     return `<div class="bar-row"><div class="bar"><span class="no">${bi+1}</span><div class="cells">${cs}</div></div></div>`;
   }).join('');
-  const areal=cells.filter(Boolean).length;
+  const blows=cells.filter(c=>c&&c!==HOLD).length;
   document.getElementById('cpHint').textContent=
-    `${bars.length} 小节 · ${areal} 拍有音 · 约 ${(cells.length*60/90).toFixed(0)} 秒`;
+    `${bars.length} 小节 · ${blows} 个音 · 约 ${(cells.length*60/90).toFixed(0)} 秒`;
 }
 
 roll.addEventListener('click',e=>{
@@ -917,7 +938,7 @@ roll.addEventListener('click',e=>{
   selIndex=idx;
   // 点格子顺手响一下，能立刻听出这个音是高是低
   const data=cells[idx];
-  if(data)playSingle(60+data.octave*12+SCALE[data.step]);
+  if(data&&data!==HOLD)playSingle(60+data.octave*12+SCALE[data.step]);
   renderRoll(); renderPicker();
   document.querySelector('.picker').scrollIntoView({behavior:'smooth',block:'nearest'});
 });
@@ -949,6 +970,7 @@ noteGrid.addEventListener('click',e=>{
 });
 
 document.getElementById('pickRest').onclick=()=>applyCell(null);
+document.getElementById('pickHold').onclick=()=>applyCell(HOLD);
 
 function cpMsg(text,color){
   const el=document.getElementById('cpMsg');
@@ -957,7 +979,7 @@ function cpMsg(text,color){
 }
 
 function applyCell(c){
-  if(c)playSingle(60+c.octave*12+SCALE[c.step]);      // 先出声，听得见才好选
+  if(c&&c!==HOLD)playSingle(60+c.octave*12+SCALE[c.step]);      // 先出声，听得见才好选
   if(selIndex===null){
     cpMsg('先点上面任意一个格子，再选音','var(--warn)');
     return;

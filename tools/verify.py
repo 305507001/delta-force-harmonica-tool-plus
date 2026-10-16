@@ -40,6 +40,7 @@ class DrySender:
     def __init__(self) -> None:
         self.timeline = []          # (相对秒, 动作, 目标)
         self.presses = []           # (音键, 按下那一刻按着的鼠标键)
+        self.overlaps = 0           # 按下新键时旧键还没松开的次数
         self.held_keys = set()
         self.held_mouse = set()
         self._t0 = time.perf_counter()
@@ -52,6 +53,8 @@ class DrySender:
         self.held_keys.add(key)
         # 记下按这个音键时手里按着哪些鼠标键，用来查"修饰键丢了没有"
         self.presses.append((key, frozenset(self.held_mouse)))
+        # 按下时还有别的音键没松开 = 两个键叠在一起了（连奏时必须先松后按）
+        self.overlaps += len(self.held_keys - {key})
         return True
 
     def key_up(self, key: str) -> bool:
@@ -380,6 +383,27 @@ def test_slow_thread_start() -> None:
         engine_module._fine_timer = original
 
 
+def test_legato_playback() -> None:
+    """连奏：换键时松开和按下在同一时刻，真放的时候也必须先松后按、不叠键、不吞音。"""
+    print("\n[11] 连奏衔接")
+    from kouqin.tune import PRESET_TUNES
+    layout = Layout()
+    tune = next(t for t in PRESET_TUNES if t.name == "小星星")
+    events, rep = compile_notes(tune.to_notes(), layout, TIMING_PRESETS["normal"], speed=4.0)
+    sender = DrySender()
+    player = Player(sender)
+    player.load(events)
+    player.play(countdown_ms=0)
+    _wait_done(player, 15.0)
+    report("每个音都按下了", len(sender.presses) == len(rep.slots), f"{len(sender.presses)}/{len(rep.slots)}")
+    report("换键时没有两个键叠在一起", sender.overlaps == 0, f"叠键 {sender.overlaps} 次")
+    downs = [e for e in events if e.kind == "kd"]
+    ups = [e for e in events if e.kind == "ku"]
+    gapless = sum(1 for i in range(len(ups) - 1)
+                  if downs[i + 1].t - ups[i].t < 0.01 and downs[i + 1].arg != ups[i].arg)
+    report("相邻换键的音之间没有空隙", gapless > 0, f"{gapless} 处无缝衔接")
+
+
 def main() -> int:
     print("=" * 62)
     print("《口琴工坊》端到端验证（使用假注入器，不会真的发按键）")
@@ -395,6 +419,7 @@ def main() -> int:
     test_no_drift()
     test_wait_gate()
     test_slow_thread_start()
+    test_legato_playback()
 
     print("\n" + "=" * 62)
     if FAILED:

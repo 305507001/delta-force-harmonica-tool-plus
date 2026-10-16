@@ -370,6 +370,7 @@ class AdvancedPage(tk.Frame):
             speed=float(self.var_speed.get() or 1.0),
             transpose=int(self.var_transpose.get() or 0),
             fold=_FOLD_CHOICES.get(self.var_fold.get(), FoldMode.FOLD),
+            legato=self.app.settings.legato,
         )
         if not events:
             self.app.log("编译后没有事件可导出")

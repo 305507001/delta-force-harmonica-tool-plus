@@ -22,6 +22,7 @@ from kouqin.tune import (
     OCTAVE_COLORS,
     OCTAVE_LABELS,
     OCTAVE_ORDER,
+    HOLD,
     REST,
     STEP_DIGITS,
     STEP_NAMES,
@@ -45,7 +46,7 @@ class CellPicker(tk.Toplevel):
         self.layout = layout
         self.current = current
         self.on_pick = on_pick
-        self.octave = current.octave if not current.is_rest else 0
+        self.octave = current.octave if current.is_note else 0
 
         self.title(title)
         self.configure(bg=Palette["bg"])
@@ -112,7 +113,9 @@ class CellPicker(tk.Toplevel):
         bottom = tk.Frame(root, bg=Palette["bg"])
         bottom.pack(fill=tk.X, pady=(14, 0))
 
-        make_button(bottom, "休止（这一拍不吹）", self._pick_rest, kind="ghost").pack(side=tk.LEFT)
+        make_button(bottom, "— 延长（接着吹上一个音）", self._pick_hold,
+                    kind="accent" if self.current.is_hold else "normal").pack(side=tk.LEFT)
+        make_button(bottom, "休止（这一拍不吹）", self._pick_rest, kind="ghost").pack(side=tk.LEFT, padx=(8, 0))
         make_button(bottom, "取消", self.destroy, kind="ghost").pack(side=tk.RIGHT)
 
         self._refresh()
@@ -151,7 +154,7 @@ class CellPicker(tk.Toplevel):
             cell = Cell(index, self.octave)
             combo = self.layout.resolve(cell.pitch)
             key_text = combo.tokens() if combo else "超范围"
-            selected = (not self.current.is_rest
+            selected = (self.current.is_note
                         and self.current.step == index
                         and self.current.octave == self.octave)
             button.configure(
@@ -168,6 +171,9 @@ class CellPicker(tk.Toplevel):
 
     def _pick_rest(self) -> None:
         self._finish(REST)
+
+    def _pick_hold(self) -> None:
+        self._finish(HOLD)
 
     def _finish(self, cell: Cell) -> None:
         callback = self.on_pick

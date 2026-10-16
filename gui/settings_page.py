@@ -63,6 +63,8 @@ _MOD_LABEL = {None: "不使用", "left": "鼠标左键", "right": "鼠标右键"
 _GUIDE_SPEEDS = [("0.5×（很慢）", 0.5), ("0.6×", 0.6), ("0.75×", 0.75), ("0.9×", 0.9), ("1.0×（原速）", 1.0)]
 _LOOKAHEADS = [(f"{n} 秒", float(n)) for n in (2, 3, 4, 5, 6)]
 _SCALES = [("小", 0.8), ("中", 1.0), ("大", 1.25), ("特大", 1.5)]
+_ANCHORS = [("屏幕上方", "top"), ("中间偏上（默认）", "upper"), ("中间偏下", "lower"),
+            ("屏幕下方", "bottom"), ("拖动过的位置", "custom")]
 
 
 def _label_for(choices, value: float) -> str:
@@ -248,6 +250,14 @@ class SettingsPage(tk.Frame):
         make_spinbox(row2, self.var_countdown, 0, 15, 1, 4).pack(side=tk.LEFT)
         make_label(row2, "秒（留出切到游戏的时间）", dim=True).pack(side=tk.LEFT, padx=(6, 0))
 
+        row3 = tk.Frame(body, bg=Palette["panel"])
+        row3.pack(fill=tk.X, pady=(12, 0))
+        self.var_legato = tk.BooleanVar(value=self.settings.legato)
+        make_check(row3, "音和音之间不留空隙（更连贯）", self.var_legato,
+                   command=lambda: self.lbl_status.configure(text="演奏设置已改动，记得点「保存设置」")
+                   ).pack(side=tk.LEFT)
+        make_label(row3, "同一个键连按仍会留一帧；游戏里漏音就关掉它", dim=True).pack(side=tk.LEFT, padx=(8, 0))
+
     def _build_overlay_card(self, parent) -> None:
         body = self._card(
             parent, "悬浮提示窗（跟弹 / 自动演奏）",
@@ -303,10 +313,14 @@ class SettingsPage(tk.Frame):
 
         row = tk.Frame(body, bg=Palette["panel"])
         row.pack(fill=tk.X, pady=(14, 0))
+        make_label(row, "位置").pack(side=tk.LEFT, padx=(0, 8))
+        self.var_anchor = tk.StringVar(value=self._anchor_label(self.settings.overlay_anchor))
+        combo = make_combobox(row, [t for t, _ in _ANCHORS], self.var_anchor, width=16)
+        combo.pack(side=tk.LEFT)
+        combo.bind("<<ComboboxSelected>>", lambda e: on_change())
         self.btn_adjust = make_button(row, "调整位置 / 预览", self._toggle_adjust, kind="guide")
-        self.btn_adjust.pack(side=tk.LEFT)
-        make_button(row, "恢复默认位置", self._reset_overlay_position, kind="ghost").pack(side=tk.LEFT, padx=8)
-        self.lbl_adjust = make_label(row, "点了之后悬浮窗会出现并播放演示，用鼠标拖到合适的位置，双击它锁定",
+        self.btn_adjust.pack(side=tk.LEFT, padx=(12, 0))
+        self.lbl_adjust = make_label(row, "点「调整位置」后悬浮窗会出现并播放演示，可以直接拖到想要的地方，双击锁定",
                                      dim=True)
         self.lbl_adjust.pack(side=tk.LEFT, padx=(8, 0))
 
@@ -325,6 +339,21 @@ class SettingsPage(tk.Frame):
             self.settings.overlay_alpha = max(0.3, min(1.0, float(self.var_alpha.get()) / 100.0))
         except (tk.TclError, ValueError):
             self.settings.overlay_alpha = 0.92
+        for text, value in _ANCHORS:
+            if text == self.var_anchor.get():
+                self.settings.overlay_anchor = value
+                break
+
+    @staticmethod
+    def _anchor_label(anchor: str) -> str:
+        for text, value in _ANCHORS:
+            if value == anchor:
+                return text
+        return _ANCHORS[1][0]
+
+    def on_overlay_moved(self) -> None:
+        """悬浮窗被拖动过：位置下拉框跟着切到「拖动过的位置」。"""
+        self.var_anchor.set(self._anchor_label("custom"))
 
     def _on_overlay_option(self) -> None:
         """改了悬浮窗选项：当场在悬浮窗上看效果，点「保存设置」才落盘。"""
@@ -333,7 +362,7 @@ class SettingsPage(tk.Frame):
         self.app.overlay.apply_settings(self.settings)
         # 滑块在程序改它的值时也会回调，所以要和已保存的设置比一下，真变了才提示
         fields = ("overlay_in_auto", "overlay_keyboard", "guide_wait", "guide_speed",
-                  "overlay_lookahead", "overlay_scale", "overlay_alpha")
+                  "overlay_lookahead", "overlay_scale", "overlay_alpha", "overlay_anchor")
         if any(getattr(self.settings, f) != getattr(self.app.settings, f) for f in fields):
             self.lbl_status.configure(text="悬浮窗设置已改动，记得点「保存设置」")
 
@@ -359,13 +388,6 @@ class SettingsPage(tk.Frame):
             self.btn_adjust.configure(text="调整位置 / 预览")
             self.lbl_adjust.configure(text="位置已保存。锁定后鼠标点击会直接穿透到游戏",
                                       fg=Palette["text_dim"])
-
-    def _reset_overlay_position(self) -> None:
-        for settings in (self.settings, self.app.settings):
-            settings.overlay_x = settings.overlay_y = None
-        self.app.settings.save()
-        self.app.overlay.apply_settings(self.settings)
-        self.lbl_adjust.configure(text="已恢复到屏幕下方居中", fg=Palette["text_dim"])
 
     def _build_compose_card(self, parent) -> None:
         body = self._card(parent, "谱曲默认值", "新建曲子时用这些参数，已保存的曲子不受影响。")
@@ -508,6 +530,8 @@ class SettingsPage(tk.Frame):
         self.var_lookahead.set(_label_for(_LOOKAHEADS, self.settings.overlay_lookahead))
         self.var_scale.set(_label_for(_SCALES, self.settings.overlay_scale))
         self.var_alpha.set(round(self.settings.overlay_alpha * 100))
+        self.var_anchor.set(self._anchor_label(self.settings.overlay_anchor))
+        self.var_legato.set(self.settings.legato)
         self.lbl_alpha.configure(text=f"{self.settings.overlay_alpha * 100:.0f}%")
         self._check_keys()
         self._on_mod_changed()
@@ -589,6 +613,7 @@ class SettingsPage(tk.Frame):
             self.settings.default_bpm = 90.0
 
         self._collect_overlay()
+        self.settings.legato = bool(self.var_legato.get())
 
     def _save(self) -> None:
         self.cancel_capture()

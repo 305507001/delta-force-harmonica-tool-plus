@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import os
+import json
 import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -30,6 +31,7 @@ from kouqin.smf import Song, Track, pitch_name, write_midi
 from kouqin.tune import PRESET_TUNES
 
 OUT_DIR = os.path.join(_ROOT, "示例MIDI")
+TUNE_DIR = os.path.join(_ROOT, "示例曲谱")
 
 
 def main() -> int:
@@ -49,6 +51,11 @@ def main() -> int:
         song.tracks.append(Track(index=0, name=tune.name, channel=0, notes=notes))
         path = os.path.join(OUT_DIR, f"{tune.name}.mid")
         write_midi(song, path, tempo_bpm=tune.bpm)
+
+        # 同时刷一份格子谱 JSON（曲库页「导入曲谱」用的就是这个格式）
+        os.makedirs(TUNE_DIR, exist_ok=True)
+        with open(os.path.join(TUNE_DIR, f"{tune.name}.json"), "w", encoding="utf-8") as fp:
+            json.dump(tune.to_dict(), fp, ensure_ascii=False, indent=1)
 
         pitches = [n.pitch for n in notes]
         lo, hi = min(pitches), max(pitches)
