@@ -16,11 +16,16 @@
 旧版存的曲谱读进来时会自动换算成「延长」，听起来和以前一模一样。）
 
 一首曲子就是一个 JSON 文件，放在「数据/曲库」下，可以直接复制给别人。
+
+另有一种「原样音符」曲子（从在线曲库存下来的）：不用格子，直接存一串音符
+（起点 / 时值 / 音高），半拍、升降半音、变速都原样保留。这种曲子能点播、能跟弹，
+但格子谱表达不了它，所以不能在谱曲页里编辑。
 """
 
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 from dataclasses import dataclass, field
@@ -182,14 +187,26 @@ def legacy_to_holds(cells: Sequence[Cell]) -> List[Cell]:
 
 @dataclass
 class Tune:
-    """一首曲子 = 曲名 + 速度 + 每小节拍数 + 一串格子。"""
+    """
+    一首曲子 = 曲名 + 速度 + 每小节拍数 + 一串格子。
+
+    ``notes`` 不是 None 时是「原样音符」曲子：不用格子，``cells`` 为空，
+    ``bpm`` / ``beats_per_bar`` 只用来显示大概有几小节。``source`` 记出处（在线曲库的曲谱 ID、上传者等）。
+    """
 
     name: str = "未命名"
     bpm: float = 90.0
     beats_per_bar: int = 4
     cells: List[Cell] = field(default_factory=list)
+    notes: Optional[List[Note]] = None
+    source: Dict[str, str] = field(default_factory=dict)
 
     # ---------------- 基本操作 ----------------
+
+    @property
+    def is_grid(self) -> bool:
+        """格子谱（能在谱曲页编辑）；False 是原样音符曲子。"""
+        return self.notes is None
 
     @property
     def length(self) -> int:
@@ -197,6 +214,9 @@ class Tune:
 
     @property
     def bar_count(self) -> int:
+        if not self.is_grid:
+            beats = self.duration_ms() / (60_000.0 / max(1.0, self.bpm))
+            return max(1, math.ceil(beats / self.beats_per_bar - 1e-6))
         return (len(self.cells) + self.beats_per_bar - 1) // self.beats_per_bar
 
     def bars(self) -> List[List[Cell]]:
@@ -232,13 +252,19 @@ class Tune:
             del self.cells[keep:]
 
     def is_empty(self) -> bool:
+        if not self.is_grid:
+            return not self.notes
         return not any(cell.is_note for cell in self.cells)
 
     def note_count(self) -> int:
         """一共要吹几下（延长不算新的一下）。"""
+        if not self.is_grid:
+            return len(self.notes)
         return sum(1 for c in self.cells if c.is_note)
 
     def duration_ms(self) -> float:
+        if not self.is_grid:
+            return max((n.end for n in self.notes), default=0.0)
         return len(self.cells) * (60_000.0 / max(1.0, self.bpm))
 
     # ---------------- 转成引擎吃的音符 ----------------
@@ -249,7 +275,10 @@ class Tune:
 
         每个音格都是新吹的一下；后面跟着的「延长」格子把它拖长。
         前面没有音可接的「延长」（开头、休止之后）当休止处理。
+        原样音符曲子直接返回存着的音符（拷一份，调用方改了也不影响曲子本身）。
         """
+        if not self.is_grid:
+            return [Note(n.start, n.duration, n.pitch, n.velocity) for n in self.notes]
         unit = 60_000.0 / max(1.0, self.bpm)
         notes: List[Note] = []
         i = 0
@@ -268,13 +297,19 @@ class Tune:
     # ---------------- 序列化 ----------------
 
     def to_dict(self) -> dict:
-        return {
+        data = {
             "version": FORMAT_VERSION,
             "name": self.name,
             "bpm": round(float(self.bpm), 2),
             "beats_per_bar": self.beats_per_bar,
             "cells": [c.to_json() for c in self.cells],
         }
+        if not self.is_grid:
+            # [起点ms, 时值ms, 音高]；取整到毫秒，文件小一半，听感没区别
+            data["notes"] = [[round(n.start), round(n.duration), n.pitch] for n in self.notes]
+        if self.source:
+            data["source"] = dict(self.source)
+        return data
 
     @staticmethod
     def from_dict(data: dict) -> "Tune":
@@ -287,11 +322,15 @@ class Tune:
             version = 1
         if version < 2:
             cells = legacy_to_holds(cells)
+        notes = _notes_from_json(data.get("notes"))
+        source = data.get("source")
         return Tune(
             name=str(data.get("name", "未命名")),
             bpm=float(data.get("bpm", 90.0) or 90.0),
             beats_per_bar=bpb,
-            cells=cells,
+            cells=cells if notes is None else [],
+            notes=notes,
+            source={str(k): str(v) for k, v in source.items()} if isinstance(source, dict) else {},
         )
 
     def copy(self, new_name: Optional[str] = None) -> "Tune":
@@ -300,7 +339,27 @@ class Tune:
             bpm=self.bpm,
             beats_per_bar=self.beats_per_bar,
             cells=list(self.cells),
+            notes=self.to_notes() if not self.is_grid else None,
+            source=dict(self.source),
         )
+
+
+def _notes_from_json(raw) -> Optional[List[Note]]:
+    """``[[起点, 时值, 音高], ...]`` → 音符表；不是列表（格子谱）返回 None，坏掉的条目跳过。"""
+    if not isinstance(raw, list):
+        return None
+    notes: List[Note] = []
+    for item in raw:
+        if not isinstance(item, (list, tuple)) or len(item) < 3:
+            continue
+        start, duration, pitch = item[:3]
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (start, duration, pitch)):
+            continue
+        if start < 0 or duration <= 0 or not 0 <= pitch <= 127:
+            continue
+        notes.append(Note(start=float(start), duration=float(duration), pitch=int(pitch)))
+    notes.sort(key=lambda n: (n.start, n.pitch))
+    return notes
 
 
 # --------------------------------------------------------------------------- #

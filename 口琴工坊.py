@@ -639,6 +639,32 @@ def cmd_selftest(args) -> int:
         return "目录缓存可用，断网时退回缓存"
     check("在线曲库缓存", online_cache)
 
+    def online_to_library():
+        import tempfile
+        from kouqin.online import OnlineEntry, to_tune
+        from kouqin.smf import Note
+        entry = OnlineEntry("abc123", "在线测试", uploader="某人", bpm=120)
+        # 升半音、半拍、不在整毫秒上的时值——格子谱都表达不了，原样保存要原样留住
+        notes = [Note(0, 250, 61), Note(250, 250, 63), Note(500.4, 749.6, 66)]
+        tune = to_tune(entry, notes, transpose=-12)
+        assert not tune.is_grid and tune.note_count() == 3
+        assert [n.pitch for n in tune.to_notes()] == [49, 51, 54], "谱面移调应算进音高"
+        with tempfile.TemporaryDirectory() as tmp:
+            lib = TuneLibrary(tmp)
+            lib.save(tune)
+            back = lib.load("在线测试")
+            assert back is not None and not back.is_grid, "读回来应该还是原样音符曲子"
+            got = [(n.start, n.duration, n.pitch) for n in back.to_notes()]
+            assert got == [(0, 250, 49), (250, 250, 51), (500, 750, 54)], f"音符没存对：{got}"
+            assert back.source.get("id") == "abc123" and back.source.get("uploader") == "某人", "出处丢了"
+            assert back.bar_count == 1 and abs(back.duration_ms() - 1250) < 1e-6
+            assert len(back.copy("副本").to_notes()) == 3
+        grid = Tune.from_dict(PRESET_TUNES_FOR_CHECK[0].to_dict())
+        assert grid.is_grid and "notes" not in grid.to_dict(), "格子谱不该多出 notes 字段"
+        return "升半音、半拍原样保留，移调算进音高，出处记下了；格子谱不受影响"
+    from kouqin.tune import PRESET_TUNES as PRESET_TUNES_FOR_CHECK
+    check("在线曲谱存进曲库", online_to_library)
+
     # ---- 跟弹 ----
 
     def slots_match_events():

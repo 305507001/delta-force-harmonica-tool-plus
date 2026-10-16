@@ -22,6 +22,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+import tkinter as tk
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
@@ -108,6 +109,9 @@ class Smoke:
             self.step_settings_overlay,
             self.step_online_library,
             self.step_online_finish,
+            self.step_online_save,
+            self.step_online_saved_play,
+            self.step_online_saved_finish,
             self.step_advanced_build,
             self.step_cleanup,
         ]
@@ -293,6 +297,47 @@ class Smoke:
         self.say(self.sender.count == self.injected_before_online, "在线曲谱跟弹全程没发按键")
         self.window.page_library.show_tab("local")
 
+    def step_online_save(self) -> None:
+        page = self.window.page_library
+        page.online.tree.selection_set("0")
+        page.online.save_selected()
+        deadline = time.time() + 3
+        while not self.window.library.exists("测试在线曲") and time.time() < deadline:
+            self.window.update()
+            time.sleep(0.02)
+        tune = self.window.library.load("测试在线曲")
+        self.say(tune is not None and not tune.is_grid and tune.note_count() == 3,
+                 "在线曲谱原样存进我的曲库", page.online.lbl_selected.cget("text"))
+        page.online.save_selected()                    # 同一首再存一次
+        for _ in range(10):
+            self.window.update()
+            time.sleep(0.02)
+        self.say(not self.window.library.exists("测试在线曲 (2)"), "同一首不会存两份",
+                 page.online.lbl_selected.cget("text"))
+        page.show_tab("local")
+        self.window.update()
+        row = next((r for n, r, _bg, _t in page._row_widgets if n == "测试在线曲"), None)
+        texts = []
+        stack = [row] if row is not None else []
+        while stack:
+            widget = stack.pop()
+            stack.extend(widget.winfo_children())
+            try:
+                texts.append(str(widget.cget("text")))
+            except tk.TclError:
+                pass
+        self.say(row is not None and "编辑" not in texts and any("来自在线曲库" in t for t in texts),
+                 "我的曲库里标了出处、没有编辑按钮")
+
+    def step_online_saved_play(self) -> None:
+        self.injected_before_saved = self.sender.count
+        self.window.play_tune_by_name("测试在线曲", "guide")
+        self.say(self.window.player.is_active, "存下来的在线曲谱能直接跟弹")
+
+    def step_online_saved_finish(self) -> None:
+        self._wait_player()
+        self.say(self.sender.count == self.injected_before_saved, "跟弹全程没发按键")
+
     def step_advanced_build(self) -> None:
         self.window.show_page("advanced")
         self.window.update()
@@ -301,6 +346,7 @@ class Smoke:
     def step_cleanup(self) -> None:
         # 把测试曲子和测试键位清掉，别污染用户的曲库和设置
         self.window.library.delete(self.saved_name)
+        self.window.library.delete("测试在线曲")
         from kouqin.layout import BASE_KEYS
         self.window.settings.keys = list(BASE_KEYS)
         self.window.settings.countdown = 3.0

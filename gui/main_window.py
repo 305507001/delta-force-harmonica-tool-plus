@@ -521,6 +521,9 @@ class MainWindow(tk.Tk):
         if tune is None:
             self.log(f"读不到《{name}》")
             return
+        if not tune.is_grid:
+            self.log(f"《{name}》是从在线曲库原样存下来的，格子谱表达不了，不能在谱曲页编辑")
+            return
         self.page_composer.load_tune(tune)
         self.show_page("compose")
         self.log(f"正在编辑《{name}》")

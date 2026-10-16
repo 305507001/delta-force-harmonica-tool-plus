@@ -18,7 +18,7 @@ from tkinter import ttk
 from typing import Callable, List, Optional
 
 from kouqin.online import (
-    DEFAULT_BASE, SOURCE_NAME, SOURCE_URL, OnlineEntry, OnlineError, OnlineLibrary, search,
+    DEFAULT_BASE, SOURCE_NAME, SOURCE_URL, OnlineEntry, OnlineError, OnlineLibrary, search, to_tune,
 )
 from kouqin.settings import DATA_DIR
 
@@ -111,6 +111,8 @@ class OnlinePanel(tk.Frame):
         self.btn_auto = make_button(bottom, "演奏", lambda: self.play_selected("auto"),
                                     kind="accent", width=8)
         self.btn_auto.pack(side=tk.LEFT, padx=(8, 0))
+        self.btn_save = make_button(bottom, "存到我的曲库", self.save_selected, kind="normal")
+        self.btn_save.pack(side=tk.LEFT, padx=(8, 0))
         self.lbl_selected = make_label(bottom, "双击一首曲子直接跟弹", dim=True, bg=Palette["bg"])
         self.lbl_selected.pack(side=tk.LEFT, padx=12)
         make_button(bottom, "曲库项目主页", lambda: webbrowser.open(SOURCE_URL),
@@ -123,6 +125,7 @@ class OnlinePanel(tk.Frame):
         state = tk.NORMAL if enabled else tk.DISABLED
         self.btn_guide.configure(state=state)
         self.btn_auto.configure(state=state)
+        self.btn_save.configure(state=state)
 
     # ================================================================== #
     # 目录
@@ -216,6 +219,52 @@ class OnlinePanel(tk.Frame):
     # ================================================================== #
 
     def play_selected(self, mode: str) -> None:
+        def play(info: OnlineEntry, notes, transpose: int) -> None:
+            self.app.log(f"在线曲库《{info.title}》（上传者 {info.uploader}）：{len(notes)} 个音"
+                         + (f"，谱面自带移调 {transpose:+d}" if transpose else ""))
+            self.app.play_notes(notes, name=info.title, transpose=transpose, mode=mode)
+
+        self._download(play)
+
+    def save_selected(self) -> None:
+        """把选中的曲谱原样存进「我的曲库」，之后不联网也能点播、跟弹。"""
+        entry = self._selected()
+        if entry is None:
+            return
+        saved = self._saved_name(entry.id)
+        if saved:
+            self.lbl_selected.configure(text=f"《{saved}》已经在我的曲库里了", fg=Palette["accent"])
+            return
+        self._download(self._save)
+
+    def _saved_name(self, entry_id: str) -> Optional[str]:
+        """这首在线曲谱以前存过的话，返回它在我的曲库里的名字。"""
+        library = self.app.library
+        for name in library.names():
+            tune = library.load(name)
+            if tune is not None and tune.source.get("kind") == "online" and tune.source.get("id") == entry_id:
+                return tune.name
+        return None
+
+    def _save(self, info: OnlineEntry, notes, transpose: int) -> None:
+        tune = to_tune(info, notes, transpose)
+        base = tune.name
+        index = 2
+        while self.app.library.exists(tune.name):
+            tune.name = f"{base} ({index})"
+            index += 1
+        try:
+            self.app.library.save(tune)
+        except OSError as exc:
+            self.lbl_selected.configure(text=f"⚠ 保存失败：{exc}", fg=Palette["warn"])
+            return
+        self.app.refresh_library()
+        self.lbl_selected.configure(text=f"✔ 已存进我的曲库：《{tune.name}》", fg=Palette["accent"])
+        self.app.log(f"已把在线曲库《{info.title}》存进我的曲库：{len(notes)} 个音，原样保存"
+                     f"（上传者 {info.uploader}；不联网也能点播、跟弹）")
+
+    def _download(self, then: Callable[[OnlineEntry, list, int], None]) -> None:
+        """后台下载选中的曲谱，下好后在界面线程里调 ``then(目录信息, 单声部音符, 移调)``。"""
         entry = self._selected()
         if entry is None or self._busy_id is not None:
             return
@@ -232,11 +281,11 @@ class OnlinePanel(tk.Frame):
                 result, error = None, str(exc)
             except Exception as exc:                 # noqa: BLE001
                 result, error = None, f"{type(exc).__name__}: {exc}"
-            self._post(lambda: self._score_done(entry, mode, result, error))
+            self._post(lambda: self._download_done(entry, then, result, error))
 
         threading.Thread(target=work, name="kouqin-online-score", daemon=True).start()
 
-    def _score_done(self, entry: OnlineEntry, mode: str, result, error: Optional[str]) -> None:
+    def _download_done(self, entry: OnlineEntry, then, result, error: Optional[str]) -> None:
         self._busy_id = None
         self._on_select()
         if error or result is None:
@@ -247,6 +296,4 @@ class OnlinePanel(tk.Frame):
         if not notes:
             self.lbl_selected.configure(text="⚠ 这首曲谱里没有音符", fg=Palette["warn"])
             return
-        self.app.log(f"在线曲库《{info.title}》（上传者 {info.uploader}）：{len(notes)} 个音"
-                     + (f"，谱面自带移调 {transpose:+d}" if transpose else ""))
-        self.app.play_notes(notes, name=info.title, transpose=transpose, mode=mode)
+        then(info, notes, transpose)
