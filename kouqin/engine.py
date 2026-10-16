@@ -174,7 +174,26 @@ class CompileReport:
         if self.skipped:
             bits.append(f"{self.skipped} 个超界跳过")
         bits.append(f"{self.played} 个可奏")
+        bits.append(self.mouse_text())
         return "，".join(bits)
+
+    def mouse_text(self) -> str:
+        """
+        这首曲子要按几次鼠标修饰键。
+
+        中音区的自然音（Z ~ 逗号）不用按鼠标，很多简单曲子全程一次都不按——
+        写出来免得以为是鼠标没按下去。
+        """
+        counts: Dict[str, int] = {}
+        for slot in self.slots:
+            for mod in slot.combo.mods:
+                counts[mod] = counts.get(mod, 0) + 1
+        need = sum(1 for slot in self.slots if slot.combo.mods)
+        if not need:
+            return "全程不用按鼠标"
+        names = {"left": "左键", "right": "右键", "middle": "中键"}
+        detail = " / ".join(f"{names.get(m, m)} {counts[m]}" for m in ("left", "right", "middle") if m in counts)
+        return f"{need} 个要按鼠标（{detail}）"
 
     def duration_text(self) -> str:
         total = self.play_length_ms / 1000.0
@@ -449,6 +468,11 @@ class Player:
     @property
     def state(self) -> str:
         return self._state
+
+    @property
+    def held_mods(self) -> Tuple[str, ...]:
+        """播放器自己按下、还没松开的鼠标修饰键（悬浮窗据此分辨"这下左键是程序按的"）。"""
+        return tuple(self._mods_down)
 
     @property
     def is_active(self) -> bool:

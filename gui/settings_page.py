@@ -325,8 +325,11 @@ class SettingsPage(tk.Frame):
                                      dim=True)
         self.lbl_adjust.pack(side=tk.LEFT, padx=(8, 0))
 
-        make_label(body, "全屏独占模式下任何窗口都盖不到游戏上——游戏要设成「无边框窗口化」或「窗口化」。",
+        make_label(body, "演奏 / 跟弹时也能挪：光标露出来的时候（比如 Alt+Tab 切出来），在悬浮窗上按住左键不动半秒，"
+                         "就能拖着走，松开放下，位置自动保存。",
                    dim=True).pack(anchor="w", pady=(12, 0))
+        make_label(body, "全屏独占模式下任何窗口都盖不到游戏上——游戏要设成「无边框窗口化」或「窗口化」。",
+                   dim=True).pack(anchor="w", pady=(4, 0))
 
     def _collect_overlay(self) -> None:
         """把悬浮窗那几项收回 self.settings（不落盘）。"""
@@ -387,7 +390,7 @@ class SettingsPage(tk.Frame):
                                       fg=Palette["warn"])
         else:
             self.btn_adjust.configure(text="调整位置 / 预览")
-            self.lbl_adjust.configure(text="位置已保存。锁定后鼠标点击会直接穿透到游戏",
+            self.lbl_adjust.configure(text="位置已保存。锁定后鼠标点击会直接穿透到游戏，长按半秒仍可拖动",
                                       fg=Palette["text_dim"])
 
     def _build_online_card(self, parent) -> None:

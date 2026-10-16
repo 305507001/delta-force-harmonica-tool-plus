@@ -107,6 +107,7 @@ class Smoke:
             self.step_auto_after_guide,
             self.step_overlay_adjust,
             self.step_settings_overlay,
+            self.step_overlay_long_press,
             self.step_online_library,
             self.step_online_finish,
             self.step_online_save,
@@ -256,6 +257,44 @@ class Smoke:
         page._save()
         self.say(abs(self.window.settings.overlay_scale - 1.25) < 0.01, "悬浮窗大小设置已保存",
                  f"{self.window.settings.overlay_scale}")
+
+    def step_overlay_long_press(self) -> None:
+        from gui.overlay import LongPressDrag
+        rect = (100, 100, 300, 120)
+
+        def feed(press, steps):
+            out = []
+            for t, down, x, y, *rest in steps:
+                act = press.step(t, down, x, y, rect, allow=rest[0] if rest else True)
+                if act:
+                    out.append(act)
+            return out
+
+        acts = feed(LongPressDrag(), [(0.0, True, 150, 150), (0.3, True, 152, 151), (0.55, True, 151, 150),
+                                      (0.6, True, 251, 350), (0.7, False, 261, 360)])
+        self.say(acts == [("start", 100, 100), ("move", 200, 300), ("drop", 210, 310)],
+                 "悬浮窗长按半秒后跟着光标走、松开放下", str(acts))
+        quick = feed(LongPressDrag(), [(0.0, True, 150, 150), (0.1, True, 190, 150), (0.8, True, 260, 150),
+                                       (0.9, False, 260, 150)])
+        outside = feed(LongPressDrag(), [(0.0, True, 50, 50), (0.2, True, 150, 150), (0.9, True, 150, 150)])
+        blocked = feed(LongPressDrag(), [(0.0, True, 150, 150, False), (0.9, True, 150, 150, True)])
+        self.say(not quick and not outside and not blocked,
+                 "按下就挪开、从外面拖进来、光标藏着时都不会拖走悬浮窗")
+
+        window = self.window.overlay.ensure_window()
+        before = (self.window.settings.overlay_x, self.window.settings.overlay_y, self.window.settings.overlay_anchor)
+        window.apply_press(("start", window.winfo_x(), window.winfo_y()))
+        marked = bool(window.canvas.find_withtag("dragmark"))
+        window.apply_press(("drop", 321, 234))
+        self.window.update()
+        s = self.window.settings
+        self.say(marked and not window.canvas.find_withtag("dragmark")
+                 and (s.overlay_x, s.overlay_y, s.overlay_anchor) == (321, 234, "custom"),
+                 "长按拖动放下后位置存成「拖动过的位置」", f"{before} -> {(s.overlay_x, s.overlay_y, s.overlay_anchor)}")
+        self.window.settings.overlay_x, self.window.settings.overlay_y, self.window.settings.overlay_anchor = before
+        self.window.page_settings.settings.overlay_anchor = before[2]
+        self.window.settings.save()
+        self.window.overlay.apply_settings(self.window.settings)
 
     def step_online_library(self) -> None:
         # 换成假的在线曲库，测试不联网
