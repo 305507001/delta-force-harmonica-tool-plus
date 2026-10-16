@@ -407,6 +407,18 @@ class MainWindow(tk.Tk):
         if self.player.state in (PlayState.PLAYING, PlayState.PAUSED):
             self.player.toggle()
 
+    def seek_to(self, ms: float) -> bool:
+        """拖进度条：跳到歌曲的 ``ms`` 毫秒处（演奏中 / 暂停中才能跳）。"""
+        if self.player.state not in (PlayState.PLAYING, PlayState.PAUSED):
+            return False
+        self.player.seek(ms)
+        position = self.player.position
+        self.overlay.on_seek(position)
+        self._on_progress(position, 0, 0)
+        if self.player.state == PlayState.PAUSED:
+            self.lbl_status.configure(text=f"已暂停（按 F6 继续）　{_mmss(position)} / {_mmss(self.player.total)}")
+        return True
+
     def stop(self) -> None:
         self.player.stop()
         self.overlay.stop()

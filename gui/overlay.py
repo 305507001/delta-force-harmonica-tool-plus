@@ -686,8 +686,8 @@ class OverlayWindow(tk.Toplevel):
                                     font=(_FONT_UI, -px(12)))
 
         # 进度条
-        c.create_rectangle(g.line_x, g.lane_bottom - px(5), g.lane_right - px(10),
-                           g.lane_bottom - px(3), fill=PAST_BG, outline="", tags=static)
+        c.create_rectangle(g.line_x, g.lane_bottom - px(6), g.lane_right - px(10),
+                           g.lane_bottom - px(2), fill=PAST_BG, outline="", tags=static)
 
         # 左侧鼠标区：叠在音符上面，把走过判定线的音符"收"进去
         _round_rect(c, g.pad, g.lane_top, g.zone_right, g.lane_bottom, px(10),
@@ -814,8 +814,9 @@ class OverlayWindow(tk.Toplevel):
             ratio = max(0.0, min(1.0, frame.position / frame.total))
             x1 = g.line_x + (g.lane_right - g.px(10) - g.line_x) * ratio
             if x1 > g.line_x + 1:
-                self.canvas.create_rectangle(g.line_x, g.lane_bottom - g.px(5), x1,
-                                             g.lane_bottom - g.px(3), fill=Palette["accent_dark"],
+                color = Palette["guide"] if frame.mode == "guide" else Palette["accent"]
+                self.canvas.create_rectangle(g.line_x, g.lane_bottom - g.px(6), x1,
+                                             g.lane_bottom - g.px(2), fill=blend(color, LANE_BG, 0.25),
                                              outline="", tags=("dyn",))
 
     def _draw_notes(self, frame: Frame) -> None:
@@ -1192,6 +1193,14 @@ class OverlayController:
     @property
     def active(self) -> bool:
         return self.mode is not None and self._finished_at is None
+
+    def on_seek(self, ms: float) -> None:
+        """进度条跳转了：判定跟着跳，等待闸门下一帧按新位置重新算。"""
+        if self.judge is not None:
+            self.judge.seek(ms)
+        self._gate = None
+        self._verdict = None
+        self._last_pos = ms
 
     # ------------------------------------------------------------------ #
     # 调整位置

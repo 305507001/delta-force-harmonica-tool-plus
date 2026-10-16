@@ -151,8 +151,20 @@ class LibraryPage(tk.Frame):
         self.lbl_score.configure(fg=Palette["guide"])
         self.lbl_score.pack(side=tk.RIGHT, padx=10, pady=14)
 
-        self.progress = tk.Canvas(self.bar, bg=Palette["panel_alt"], highlightthickness=0, height=6)
+        self.lbl_time = make_label(self.bar, "", dim=True, bg=Palette["panel_alt"])
+        self.lbl_time.configure(font=("Consolas", 10))
+        self.lbl_time.pack(side=tk.RIGHT, padx=(2, 6), pady=14)
+
+        # 进度条：点一下跳过去，按住拖动松开后跳（拖的过程中不跳，免得一路乱响）
+        self.progress = tk.Canvas(self.bar, bg=Palette["panel_alt"], highlightthickness=0, height=20,
+                                  cursor="hand2")
         self.progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=12)
+        self._ratio = 0.0
+        self._scrub: Optional[float] = None       # 正在拖的位置（0~1），None = 没在拖
+        self.progress.bind("<ButtonPress-1>", self._scrub_move)
+        self.progress.bind("<B1-Motion>", self._scrub_move)
+        self.progress.bind("<ButtonRelease-1>", self._scrub_end)
+        self.progress.bind("<Configure>", lambda e: self._draw_progress())
 
     # ================================================================== #
     # 列表渲染
@@ -319,13 +331,50 @@ class LibraryPage(tk.Frame):
         self.refresh()
 
     def set_progress(self, ratio: float, text: str) -> None:
-        self.progress.delete("all")
-        width = self.progress.winfo_width() or 200
-        height = 6
-        self.progress.create_rectangle(0, 0, width, height,
-                                       fill=Palette["panel"], outline="")
-        self.progress.create_rectangle(0, 0, max(0.0, min(1.0, ratio)) * width, height,
-                                       fill=self._color(), outline="")
+        """更新进度（``text`` 为空表示不显示时间）。时间按「分:秒」显示，不跳百分之一秒。"""
+        self._ratio = max(0.0, min(1.0, ratio))
+        if self._scrub is None:
+            total = self.app.player.total
+            self.lbl_time.configure(text=f"{_clock(self._ratio * total)} / {_clock(total)}" if text else "")
+            self._draw_progress()
+
+    def _seekable(self) -> bool:
+        return self.app.player.state in ("playing", "paused") and self.app.player.total > 0
+
+    def _draw_progress(self) -> None:
+        c = self.progress
+        c.delete("all")
+        width = max(40, c.winfo_width())
+        mid = max(10, c.winfo_height()) // 2
+        pad = 8                                    # 两头留出拖动圆点的位置
+        ratio = self._scrub if self._scrub is not None else self._ratio
+        x = pad + (width - 2 * pad) * ratio
+        c.create_line(pad, mid, width - pad, mid, fill=Palette["panel"], width=6, capstyle=tk.ROUND)
+        if ratio > 0:
+            c.create_line(pad, mid, x, mid, fill=self._color(), width=6, capstyle=tk.ROUND)
+        if self._seekable() or self._scrub is not None:
+            r = 7 if self._scrub is not None else 6
+            c.create_oval(x - r, mid - r, x + r, mid + r, fill="#ffffff", outline=self._color(), width=2)
+
+    def _ratio_at(self, x: int) -> float:
+        width = max(40, self.progress.winfo_width())
+        return max(0.0, min(1.0, (x - 8) / (width - 16)))
+
+    def _scrub_move(self, event) -> None:
+        if not self._seekable():
+            return
+        self._scrub = self._ratio_at(event.x)
+        total = self.app.player.total
+        self.lbl_time.configure(text=f"→ {_clock(self._scrub * total)} / {_clock(total)}")
+        self._draw_progress()
+
+    def _scrub_end(self, event) -> None:
+        if self._scrub is None:
+            return
+        target = self._ratio_at(event.x) * self.app.player.total
+        self._scrub = None
+        if not self.app.seek_to(target):
+            self._draw_progress()
 
     def set_score(self, text: str) -> None:
         """跟弹时播放条右边的实时成绩。"""
@@ -337,7 +386,10 @@ class LibraryPage(tk.Frame):
         self.btn_pause.configure(state=tk.DISABLED, text="⏸  暂停")
         self.lbl_now.configure(text="选一首曲子：「跟弹」自己按，「演奏」程序替你按", fg=Palette["text"])
         self.lbl_score.configure(text="")
-        self.progress.delete("all")
+        self.lbl_time.configure(text="")
+        self._scrub = None
+        self._ratio = 0.0
+        self._draw_progress()
         self.refresh()
 
     def show_playing(self, name: str) -> None:
@@ -369,3 +421,8 @@ class LibraryPage(tk.Frame):
 
     def _stop(self) -> None:
         self.app.stop()
+
+
+def _clock(ms: float) -> str:
+    seconds = int(max(0.0, ms) // 1000)
+    return f"{seconds // 60}:{seconds % 60:02d}"

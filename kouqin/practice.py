@@ -45,6 +45,7 @@ class Mark:
     PERFECT = "perfect"
     GOOD = "good"
     MISS = "miss"
+    SKIP = "skip"        # 拖进度条跳过去的，不算漏、不计入总数
 
     HIT = (PERFECT, GOOD)
 
@@ -100,7 +101,12 @@ class Judge:
 
     @property
     def total(self) -> int:
-        return len(self.slots)
+        """要判定的音数（拖进度条跳过的不算）。"""
+        return len(self.slots) - self.skipped
+
+    @property
+    def skipped(self) -> int:
+        return sum(1 for mark in self.marks if mark == Mark.SKIP)
 
     @property
     def hits(self) -> int:
@@ -130,7 +136,33 @@ class Judge:
         text = f"命中 {self.hits}/{self.total}（{percent:.0f}%）· 完美 {self.perfect} · 最大连击 {self.best_combo}"
         if self.wrong:
             text += f" · 按错 {self.wrong} 次"
+        if self.skipped:
+            text += f" · 跳过 {self.skipped} 个"
         return text
+
+    def seek(self, t: float) -> None:
+        """
+        进度条跳到了歌曲时间 ``t``。
+
+        往后跳：中间没按的音记成「跳过」，不算漏；
+        往回跳：``t`` 之后（还在判定窗口里的）音撤销判定，重新来。
+        """
+        for index, slot in enumerate(self.slots):
+            mark = self.marks[index]
+            if slot.start + self.good_ms >= t:
+                if mark == Mark.PERFECT:
+                    self.perfect -= 1
+                elif mark == Mark.GOOD:
+                    self.good -= 1
+                elif mark == Mark.MISS:
+                    self.missed -= 1
+                self.marks[index] = Mark.PENDING
+                self.offsets[index] = 0.0
+            elif mark == Mark.PENDING:
+                self.marks[index] = Mark.SKIP
+        self.cursor = next((i for i, m in enumerate(self.marks) if m == Mark.PENDING), len(self.slots))
+        self.combo = 0
+        self.last = None
 
     # ------------------------------------------------------------------ #
     # 判定
