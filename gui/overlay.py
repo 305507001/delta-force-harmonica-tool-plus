@@ -6,6 +6,9 @@
 本质上和音乐软件的"桌面歌词"是同一种窗口，只是内容换成了按键提示。
 跟弹模式下程序不发送任何按键，玩家的按键是用 GetAsyncKeyState 读状态位"看"的。
 
+锁定（点击穿透）时窗口收不到鼠标消息，"长按拖动"也是每帧读鼠标左键状态和光标位置做的：
+在悬浮窗上按住左键不动半秒，就能拖着走，松开放下（见 :class:`LongPressDrag`）。
+
 全屏独占模式下任何普通窗口都盖不到游戏上面，所以游戏要设成
 「无边框窗口化」或「窗口化」（自动演奏本来也有这个要求）。
 
@@ -42,7 +45,7 @@ from kouqin.tune import OCTAVE_COLORS, STEP_DIGITS
 
 from .theme import Palette, blend
 
-__all__ = ["OverlayController", "OverlayWindow", "Frame"]
+__all__ = ["OverlayController", "OverlayWindow", "Frame", "LongPressDrag"]
 
 # --------------------------------------------------------------------------- #
 # 配色与常量
@@ -107,8 +110,36 @@ if _IS_WIN:  # pragma: no cover - 只在 Windows 上走
 
     _user32.MonitorFromPoint.argtypes = (_POINT, ctypes.c_uint)
     _user32.MonitorFromPoint.restype = ctypes.c_void_p
+    _user32.GetAsyncKeyState.argtypes = (ctypes.c_int,)
+    _user32.GetAsyncKeyState.restype = ctypes.c_short
+    _user32.GetCursorPos.argtypes = (ctypes.POINTER(_POINT),)
+    _user32.GetCursorPos.restype = ctypes.c_int
+
+    class _CURSORINFO(ctypes.Structure):
+        _fields_ = (("cbSize", ctypes.c_uint), ("flags", ctypes.c_uint),
+                    ("hCursor", ctypes.c_void_p), ("ptScreenPos", _POINT))
+
+    _user32.GetCursorInfo.argtypes = (ctypes.POINTER(_CURSORINFO),)
+    _user32.GetCursorInfo.restype = ctypes.c_int
+
+
+def _mouse_state() -> Optional[Tuple[bool, int, int, bool]]:
+    """(左键按着没有, 光标 x, 光标 y, 光标显示着没有)；不是 Windows 返回 None。"""
+    if not _IS_WIN:
+        return None
+    point = _POINT()
+    if not _user32.GetCursorPos(ctypes.byref(point)):
+        return None
+    info = _CURSORINFO()
+    info.cbSize = ctypes.sizeof(_CURSORINFO)
+    showing = bool(_user32.GetCursorInfo(ctypes.byref(info)) and info.flags & CURSOR_SHOWING)
+    down = bool(_user32.GetAsyncKeyState(VK_LBUTTON) & 0x8000)
+    return down, point.x, point.y, showing
+
 
 GWL_EXSTYLE = -20
+VK_LBUTTON = 0x01
+CURSOR_SHOWING = 0x00000001
 WS_EX_TRANSPARENT = 0x00000020
 WS_EX_TOOLWINDOW = 0x00000080
 WS_EX_LAYERED = 0x00080000
@@ -247,6 +278,87 @@ def _mods_text(mods: Sequence[str]) -> str:
 # --------------------------------------------------------------------------- #
 
 
+class LongPressDrag:
+    """
+    "长按拖动"的判定（纯逻辑，每帧喂一次鼠标状态）。
+
+    锁定的悬浮窗是点击穿透的，收不到鼠标消息，只能每帧看左键按没按、光标在哪：
+
+        在窗口里按下左键、按住不动 ``HOLD_S`` 秒  → 开始拖动，窗口跟着光标走
+        松开                                        → 放下，存位置
+        按下时光标不在窗口里 / 按住期间先挪开了     → 这次按下不算（多半是在游戏里点别的）
+
+    ``allow`` 为 False 时不会开始新的长按：光标被游戏藏起来了（第一人称视角里），
+    或者这下左键是自动演奏自己按的（降八度），都不该把悬浮窗拖走。已经在拖的不受影响。
+
+    注意：窗口是穿透的，这次按下 / 松开同样会落到下面的窗口上。
+    """
+
+    HOLD_S = 0.5
+    SLOP_PX = 6
+
+    def __init__(self, scale: float = 1.0) -> None:
+        self.slop = max(2, round(self.SLOP_PX * scale))
+        self.state = "idle"                 # idle / pressing / ignored / dragging
+        self._was_down = False
+        self._t0 = 0.0
+        self._origin = (0, 0)
+        self._offset = (0, 0)
+
+    @property
+    def dragging(self) -> bool:
+        return self.state == "dragging"
+
+    @property
+    def busy(self) -> bool:
+        """正在长按或拖动（控制器据此保持每帧刷新）。"""
+        return self.state in ("pressing", "dragging")
+
+    def step(self, now: float, down: bool, x: int, y: int, rect: Tuple[int, int, int, int],
+             allow: bool = True) -> Optional[Tuple[str, int, int]]:
+        """
+        :param rect: 窗口现在的 (左, 上, 宽, 高)
+        :return: ``("start" | "move" | "drop", 窗口左, 窗口上)``，没事发生返回 None
+        """
+        just_pressed = down and not self._was_down
+        self._was_down = down
+        left, top, width, height = rect
+
+        if self.state == "idle":
+            inside = left <= x < left + width and top <= y < top + height
+            if just_pressed and inside and allow:
+                self.state = "pressing"
+                self._t0 = now
+                self._origin = (x, y)
+            return None
+
+        if self.state == "pressing":
+            if not down:
+                self.state = "idle"
+                return None
+            ox, oy = self._origin
+            if not allow or abs(x - ox) > self.slop or abs(y - oy) > self.slop:
+                self.state = "ignored"
+                return None
+            if now - self._t0 >= self.HOLD_S:
+                self.state = "dragging"
+                self._offset = (x - left, y - top)
+                return ("start", left, top)
+            return None
+
+        if self.state == "ignored":
+            if not down:
+                self.state = "idle"
+            return None
+
+        # dragging
+        nx, ny = x - self._offset[0], y - self._offset[1]
+        if not down:
+            self.state = "idle"
+            return ("drop", nx, ny)
+        return ("move", nx, ny)
+
+
 class OverlayWindow(tk.Toplevel):
     """
     悬浮窗本体：只负责窗口属性（置顶 / 穿透 / 拖动）和照着 :class:`Frame` 画图。
@@ -286,6 +398,7 @@ class OverlayWindow(tk.Toplevel):
         except tk.TclError:
             self._dpi = 1.0
         self.geo = _Geometry(self._dpi, True)
+        self._press = LongPressDrag(self._dpi)
 
         self.canvas = tk.Canvas(self, bg=TRANSPARENT, highlightthickness=0, bd=0)
         self.canvas.pack(fill=tk.BOTH, expand=True)
@@ -451,6 +564,60 @@ class OverlayWindow(tk.Toplevel):
             return
         self._drag = None
         self._on_moved(self.winfo_x(), self.winfo_y())
+
+    # ------------------------------------------------------------------ #
+    # 长按拖动（锁定状态下）
+    # ------------------------------------------------------------------ #
+
+    @property
+    def press_busy(self) -> bool:
+        return self._press.busy
+
+    def poll_long_press(self, allow: bool = True) -> None:
+        """每帧调一次：锁定、显示着的时候看看是不是有人在长按悬浮窗。"""
+        if not self._locked or not self._visible:
+            if self._press.dragging:
+                self.apply_press(("drop", self.winfo_x(), self.winfo_y()))
+            self._press.state = "idle"
+            return
+        state = _mouse_state()
+        if state is None:
+            return
+        down, x, y, showing = state
+        action = self._press.step(time.perf_counter(), down, x, y,
+                                  (self.winfo_x(), self.winfo_y(), self.geo.w, self.geo.h),
+                                  allow=allow and showing)
+        self.apply_press(action)
+
+    def apply_press(self, action: Optional[Tuple[str, int, int]]) -> None:
+        """执行 :class:`LongPressDrag` 给出的动作（测试里也直接调它）。"""
+        if action is None:
+            if self._press.dragging:
+                self.canvas.tag_raise("dragmark")
+            return
+        kind, x, y = action
+        if kind == "start":
+            self._mark_drag(True)
+            return
+        self.geometry(f"+{int(x)}+{int(y)}")
+        if kind == "move":
+            self.canvas.tag_raise("dragmark")
+            return
+        self._mark_drag(False)
+        self._on_moved(int(x), int(y))
+
+    def _mark_drag(self, on: bool) -> None:
+        """拖动中描一圈蓝边，告诉玩家"抓住了"。"""
+        self.canvas.delete("dragmark")
+        if not on:
+            return
+        g = self.geo
+        width = max(2, round(2 * self._dpi))
+        self.canvas.create_rectangle(width, width, g.w - width, g.h - width, outline=Palette["guide"],
+                                     width=width, tags="dragmark")
+        self.canvas.create_text(g.w // 2, g.h - max(8, round(10 * self._dpi)), text="松开鼠标放下",
+                                fill=Palette["guide"], tags="dragmark",
+                                font=("Microsoft YaHei UI", max(8, round(8 * self._dpi)), "bold"))
 
     # ------------------------------------------------------------------ #
     # 内容
@@ -1083,6 +1250,7 @@ class OverlayController:
             elif self.adjusting:
                 frame = self._preview_frame(now)
             window.render(frame)
+            window.poll_long_press(allow=self._allow_long_press())
         except tk.TclError:
             return                              # 窗口已经关了
         except Exception as exc:                # noqa: BLE001 - 画面出错不能把提示整个停掉
@@ -1092,8 +1260,14 @@ class OverlayController:
         if frame is not None and now - self._last_topmost > self.TOPMOST_EVERY:
             self._last_topmost = now
             window.keep_on_top()
-        if self.mode is not None or self.adjusting:
+        if self.mode is not None or self.adjusting or window.press_busy:
             self._tick_id = window.after(self.TICK_MS, self._tick)
+
+    def _allow_long_press(self) -> bool:
+        """自动演奏正按着左键（降八度）时，左键是程序按的，不算玩家长按。"""
+        player = getattr(self.app, "player", None)
+        held = getattr(player, "held_mods", ()) if player is not None else ()
+        return "left" not in held
 
     def _session_frame(self, now: float) -> Optional[Frame]:
         player = self.app.player
