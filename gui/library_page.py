@@ -245,8 +245,13 @@ class LibraryPage(tk.Frame):
                     kind="accent" if not playing else "ghost", width=6).pack(side=tk.RIGHT, padx=(2, 12), pady=10)
         make_button(row, "跟弹", lambda n=name: self.app.play_tune_by_name(n, "guide"),
                     kind="guide" if not playing else "ghost", width=6).pack(side=tk.RIGHT, padx=2, pady=10)
-        make_button(row, "编辑", lambda n=name: self.app.edit_tune(n),
-                    kind="ghost", width=5).pack(side=tk.RIGHT, padx=2, pady=10)
+        if tune.is_grid:
+            make_button(row, "编辑", lambda n=name: self.app.edit_tune(n),
+                        kind="ghost", width=5).pack(side=tk.RIGHT, padx=2, pady=10)
+        if tune.source.get("kind") == "online":
+            uploader = tune.source.get("uploader") or "匿名玩家"
+            tk.Label(info, text=f"来自在线曲库 · 上传者 {uploader} · 原样保存（不能编辑）", bg=bg,
+                     fg=Palette["text_dim"], font=("Microsoft YaHei UI", 8), anchor="w").pack(anchor="w", pady=(2, 0))
         make_button(row, "删除", lambda n=name: self._delete(n),
                     kind="ghost", width=5).pack(side=tk.RIGHT, padx=2, pady=10)
 

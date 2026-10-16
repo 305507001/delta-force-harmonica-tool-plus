@@ -33,6 +33,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from .smf import Note
+from .tune import Tune
 
 __all__ = [
     "DEFAULT_BASE",
@@ -46,6 +47,7 @@ __all__ = [
     "unwrap_jsonp",
     "monophonic",
     "search",
+    "to_tune",
 ]
 
 #: 曲库公开文件的地址（曲库作者的网页 / 桌面版读的也是这里；地址变了可以在设置里改）
@@ -57,7 +59,7 @@ SOURCE_URL = "https://github.com/Dr-hydra/Delta-Force-Harmonica"
 #: 目录多久刷新一次（秒）。曲库更新不频繁，没必要每次打开都去拉
 CATALOG_TTL = 3600
 
-_USER_AGENT = "KouqinStudio/2.3 (+https://github.com/305507001/delta-force-harmonica-tool-plus)"
+_USER_AGENT = "KouqinStudio/2.4 (+https://github.com/305507001/delta-force-harmonica-tool-plus)"
 _JSONP = re.compile(r'^\s*__dfh\(\s*"((?:[^"\\]|\\.)*)"\s*,\s*(.*?)\s*\)\s*;?\s*$', re.S)
 _ID = re.compile(r"^[A-Za-z0-9_-]{6,32}$")
 
@@ -319,6 +321,31 @@ def search(entries: Sequence[OnlineEntry], query: str) -> List[OnlineEntry]:
         if all(word in haystack for word in words):
             found.append(entry)
     return found
+
+
+def to_tune(entry: OnlineEntry, notes: Sequence[Note], transpose: int = 0) -> Tune:
+    """
+    在线曲谱 → 本地曲库里的「原样音符」曲子。
+
+    音符不量化成格子（格子谱表达不了半拍、升降半音、变速），谱面自带的移调直接算进音高，
+    出处（曲库、曲谱 ID、上传者）记在 ``source`` 里，曲库页会标出来。
+    """
+    baked = [Note(start=n.start, duration=n.duration, pitch=max(0, min(127, n.pitch + transpose)),
+                  velocity=n.velocity) for n in notes]
+    return Tune(
+        name=entry.title,
+        bpm=entry.bpm if entry.bpm > 0 else 120.0,
+        beats_per_bar=4,
+        notes=baked,
+        source={
+            "kind": "online",
+            "library": SOURCE_NAME,
+            "id": entry.id,
+            "title": entry.title,
+            "composer": entry.composer,
+            "uploader": entry.uploader,
+        },
+    )
 
 
 # --------------------------------------------------------------------------- #
