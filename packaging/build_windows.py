@@ -21,8 +21,9 @@
     python packaging\\build_windows.py --skip-tests
 
 安装包需要 Inno Setup 6（https://jrsoftware.org/isinfo.php）；没装的话只打免安装版。
-安装界面用 Inno Setup 自带的简体中文（6.x 较新的版本都带）；老版本没有的话，
-把 ChineseSimplified.isl 放进 packaging\\ 也行，都没有就是英文界面。GitHub 上的自动打包（.github/workflows/build-windows.yml）用的也是这个脚本。
+安装界面用 packaging\\ChineseSimplified.isl（Inno Setup 6.7.1 配套的简体中文翻译，
+来自 jrsoftware/issrc，加了 BOM 免得被当成 GBK 读）；没有这个文件就用 Inno Setup 7
+自带的简体中文，再没有就是英文界面。GitHub 上的自动打包（.github/workflows/build-windows.yml）用的也是这个脚本。
 
 注意：这类自己打的 exe 没有数字签名，又会读键盘状态、模拟按键，杀毒软件和 SmartScreen
 很可能误报，需要手动放行。
