@@ -432,7 +432,7 @@ class MainWindow(tk.Tk):
         self.lbl_status.configure(text=text)
 
     def _on_state(self, state: str) -> None:
-        name = self.current_tune.name if self.current_tune else ""
+        name = self.current_tune.name if self.current_tune else self._play_name
         if state == PlayState.PLAYING:
             self.lbl_status.configure(text=f"{self._doing()}…")
             color = Palette["guide"] if self.play_mode == MODE_GUIDE else Palette["accent"]
@@ -454,7 +454,7 @@ class MainWindow(tk.Tk):
             self.btn_stop.configure(state=tk.DISABLED)
 
     def _on_finish(self) -> None:
-        name = self.current_tune.name if self.current_tune else ""
+        name = self.current_tune.name if self.current_tune else self._play_name
         self._stop_countdown_ticker()
         summary = self.overlay.finish()
         self.lbl_nav_status.configure(text="")

@@ -42,6 +42,12 @@ jobs:
         continue-on-error: true
         run: python tools/verify.py
 
+      - name: 在线曲库联网检查
+        # 依赖外部服务，网络抖动不该拦打包
+        continue-on-error: true
+        timeout-minutes: 3
+        run: python tools/online_check.py 5
+
       - name: 界面冒烟测试
         # 需要桌面会话，CI 机器上不一定能开窗口，不拦打包
         continue-on-error: true

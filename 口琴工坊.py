@@ -566,6 +566,79 @@ def cmd_selftest(args) -> int:
         return f"连奏 {gaps} ms，关掉连奏 {apart} ms"
     check("音符衔接", legato_transitions)
 
+    # ---- 在线曲库（不联网：自己编一份 DFHS1 谱面再解回来） ----
+
+    def online_codec():
+        import base64
+        import zlib
+        from kouqin.online import _b64url, decode_dfhs, monophonic, unwrap_jsonp, OnlineEntry, search
+
+        def varint(value):
+            out = bytearray()
+            while True:
+                byte = value & 0x7F
+                value >>= 7
+                out.append(byte | (0x80 if value else 0))
+                if not value:
+                    return bytes(out)
+
+        def zigzag(value):
+            return value * 2 if value >= 0 else -value * 2 - 1
+
+        ppq = 480
+        notes = [(0, 480, 60), (480, 480, 62), (960, 960, 64), (960, 240, 55), (1920, 480, 67)]
+        body = bytearray(b"DFHS") + bytes([1]) + varint(ppq) + varint(zigzag(-12))
+        body += varint(2) + varint(0) + varint(12000) + varint(1920) + varint(6000)   # 120 BPM，第 4 拍起 60 BPM
+        body += varint(1) + varint(0) + varint(4) + varint(4)
+        body += varint(0)
+        body += varint(len(notes))
+        last = 0
+        for tick, length, pitch in notes:
+            body += varint(tick - last) + varint(length) + bytes([pitch])
+            last = tick
+        packer = zlib.compressobj(9, zlib.DEFLATED, -15)
+        payload = packer.compress(bytes(body)) + packer.flush()
+        b64 = base64.urlsafe_b64encode(payload).decode().rstrip("=")
+        snap = decode_dfhs(_b64url(b64))
+        assert snap.transpose == -12 and snap.ppq == 480, f"头部解错：{snap.transpose} / {snap.ppq}"
+        got = [(n.start, n.duration, n.pitch) for n in snap.notes]
+        # 120 BPM 一拍 500 ms；第 4 拍起换成 60 BPM，一拍 1000 ms
+        want = [(0, 500, 60), (500, 500, 62), (1000, 1000, 64), (1000, 250, 55), (2000, 1000, 67)]
+        assert got == want, f"音符解错：{got}"
+        mono = monophonic(snap.notes)
+        assert [(n.start, n.pitch) for n in mono] == [(0, 60), (500, 62), (1000, 64), (2000, 67)], \
+            "和弦应只留最高音"
+        key, data = unwrap_jsonp('__dfh("catalog/a", {"r": [["abc123", "曲子", "", "", "", ["动漫"], 0, 90, 1000, 3, 0]]});')
+        assert key == "catalog/a" and data["r"][0][1] == "曲子"
+        entry = OnlineEntry.from_row(data["r"][0])
+        assert search([entry], "动漫") == [entry] and search([entry], "不存在") == []
+        return "谱面解码、速度表换算、和弦取最高音、目录解析、搜索都正常"
+    check("在线曲库解码", online_codec)
+
+    def online_cache():
+        import tempfile
+        from kouqin.online import OnlineError, OnlineLibrary
+        with tempfile.TemporaryDirectory() as tmp:
+            lib = OnlineLibrary("https://example.invalid/harmonica", tmp)
+            calls = []
+
+            def fake_get(key, freshness):
+                calls.append(key)
+                if key == "index":
+                    return {"v": 1, "n": 1, "s": {"a": 1, "b": 0}}
+                return {"r": [["abc123", "旧曲", "", "某人", "", [], 2, 100, 5000, 9, 1700000000000]]}
+            lib._get = fake_get
+            first = lib.catalog(force=True)
+            assert [e.title for e in first] == ["旧曲"] and calls == ["index", "catalog/a"], calls
+
+            def offline(key, freshness):
+                raise OnlineError("连不上")
+            lib._get = offline
+            again = lib.catalog(force=True)
+            assert [e.title for e in again] == ["旧曲"], "断网时应退回本地缓存"
+        return "目录缓存可用，断网时退回缓存"
+    check("在线曲库缓存", online_cache)
+
     # ---- 跟弹 ----
 
     def slots_match_events():

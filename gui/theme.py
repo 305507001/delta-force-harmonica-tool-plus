@@ -118,6 +118,15 @@ def apply_theme(root: tk.Misc) -> ttk.Style:
                     lightcolor=Palette["accent"],
                     darkcolor=Palette["accent_dark"])
     style.configure("Vertical.TScrollbar", background=Palette["panel_alt"])
+    # 在线曲库的表格
+    style.configure("Treeview", background=Palette["panel"], fieldbackground=Palette["panel"],
+                    foreground=Palette["text"], rowheight=30, borderwidth=0,
+                    font=("Microsoft YaHei UI", 10))
+    style.map("Treeview", background=[("selected", Palette["guide_dark"])],
+              foreground=[("selected", "#ffffff")])
+    style.configure("Treeview.Heading", background=Palette["panel_alt"], foreground=Palette["text_dim"],
+                    relief="flat", borderwidth=0, font=("Microsoft YaHei UI", 9, "bold"))
+    style.map("Treeview.Heading", background=[("active", Palette["border"])])
     return style
 
 

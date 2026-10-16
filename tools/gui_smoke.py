@@ -106,6 +106,8 @@ class Smoke:
             self.step_auto_after_guide,
             self.step_overlay_adjust,
             self.step_settings_overlay,
+            self.step_online_library,
+            self.step_online_finish,
             self.step_advanced_build,
             self.step_cleanup,
         ]
@@ -250,6 +252,46 @@ class Smoke:
         page._save()
         self.say(abs(self.window.settings.overlay_scale - 1.25) < 0.01, "悬浮窗大小设置已保存",
                  f"{self.window.settings.overlay_scale}")
+
+    def step_online_library(self) -> None:
+        # 换成假的在线曲库，测试不联网
+        from gui.online_page import OnlinePanel
+        from kouqin.online import OnlineEntry
+        from kouqin.smf import Note
+
+        class FakeLibrary:
+            def catalog(self, force=False):
+                return [OnlineEntry("abc123", "测试在线曲", uploader="冒烟", bpm=240, duration_ms=1500,
+                                    note_count=3)]
+
+            def playable_notes(self, entry_id):
+                notes = [Note(0, 250, 60), Note(250, 250, 64), Note(500, 500, 67)]
+                return self.catalog()[0], notes, 0
+
+        self.window.show_page("library")
+        page = self.window.page_library
+        page.online = OnlinePanel(page, self.window, factory=lambda: FakeLibrary())
+        page.online.grid(row=1, column=0, sticky="nsew")
+        page.show_tab("online")
+        deadline = time.time() + 3
+        while not page.online._entries and time.time() < deadline:
+            self.window.update()
+            time.sleep(0.02)
+        self.say(len(page.online._entries) == 1, "在线曲库目录显示出来了", page.online.lbl_status.cget("text"))
+        self.injected_before_online = self.sender.count
+        page.online.tree.selection_set("0")
+        page.online.play_selected("guide")
+        deadline = time.time() + 3
+        while not self.window.player.is_active and time.time() < deadline:
+            self.window.update()
+            time.sleep(0.02)
+        self.say(self.window.player.is_active and self.window.play_mode == "guide",
+                 "在线曲谱下载后开始跟弹", self.window._play_name)
+
+    def step_online_finish(self) -> None:
+        self._wait_player()
+        self.say(self.sender.count == self.injected_before_online, "在线曲谱跟弹全程没发按键")
+        self.window.page_library.show_tab("local")
 
     def step_advanced_build(self) -> None:
         self.window.show_page("advanced")
