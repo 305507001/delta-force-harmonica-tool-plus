@@ -45,6 +45,9 @@ LIBRARY_DIR = os.path.join(DATA_DIR, "曲库")
 #: 配置文件路径
 SETTINGS_FILE = "settings.json"
 
+#: 悬浮窗位置预设（custom = 用户拖动过的位置）
+OVERLAY_ANCHORS = ("top", "upper", "lower", "bottom", "custom")
+
 #: 允许作为音键的字符（防止用户填进奇怪的东西）
 _ALLOWED_KEYS = set("abcdefghijklmnopqrstuvwxyz0123456789,./;'[]\\-=")
 
@@ -111,6 +114,7 @@ class AppSettings:
     timing: str = "normal"
     countdown: float = 3.0
     speed: float = 1.0
+    legato: bool = True                 # 换不同的键时不留空隙（同一个键连按仍会留一帧）
 
     # --- 编辑 ---
     beats_per_bar: int = 4
@@ -124,12 +128,14 @@ class AppSettings:
     overlay_scale: float = 1.0          # 悬浮窗大小
     overlay_alpha: float = 0.92         # 悬浮窗不透明度
     overlay_keyboard: bool = True       # 显示下方的键盘提示行
-    overlay_x: Optional[int] = None     # 悬浮窗位置；None = 屏幕下方居中
+    overlay_anchor: str = "upper"       # 悬浮窗位置预设：top / upper / lower / bottom / custom
+    overlay_x: Optional[int] = None     # 拖动过的位置（overlay_anchor 为 custom 时用）
     overlay_y: Optional[int] = None
 
     # --- 其它 ---
     follow_playhead: bool = True
     installed_presets: bool = False      # 是否已经铺过内置曲目
+    preset_revision: int = 0             # 曲库里的内置曲目是第几版（见 tune.PRESET_REVISION）
     disclaimer_accepted: bool = False    # 是否已确认过免责声明
     guide_shown: bool = False            # 是否已看过使用步骤（只自动弹一次）
 
@@ -221,6 +227,13 @@ class AppSettings:
             # 位置可以是负数（主屏左边 / 上边的副屏），但必须是个正常的整数
             if isinstance(value, (int, float)) and not isinstance(value, bool) and abs(value) < 100_000:
                 setattr(settings, attr, int(value))
+        anchor = data.get("overlay_anchor")
+        if anchor in OVERLAY_ANCHORS:
+            settings.overlay_anchor = anchor
+        elif settings.overlay_x is not None and settings.overlay_y is not None:
+            settings.overlay_anchor = "custom"      # v2.1.0 拖动过位置的老配置
+        settings.legato = bool(data.get("legato", True))
+        settings.preset_revision = clamp(data.get("preset_revision", 0), 0, 999, 0)
 
         settings.follow_playhead = bool(data.get("follow_playhead", True))
         settings.installed_presets = bool(data.get("installed_presets", False))
@@ -257,6 +270,7 @@ class AppSettings:
         「已确认免责」免得用户刚点完同意又被弹一次。
         """
         keep_presets = self.installed_presets
+        keep_revision = self.preset_revision
         keep_disclaimer = self.disclaimer_accepted
         keep_guide = self.guide_shown
         fresh = AppSettings()
@@ -264,8 +278,9 @@ class AppSettings:
                      "speed", "beats_per_bar", "default_bpm", "follow_playhead",
                      "overlay_in_auto", "guide_wait", "guide_speed", "overlay_lookahead",
                      "overlay_scale", "overlay_alpha", "overlay_keyboard",
-                     "overlay_x", "overlay_y"):
+                     "overlay_anchor", "overlay_x", "overlay_y", "legato"):
             setattr(self, attr, getattr(fresh, attr))
         self.installed_presets = keep_presets
+        self.preset_revision = keep_revision
         self.disclaimer_accepted = keep_disclaimer
         self.guide_shown = keep_guide

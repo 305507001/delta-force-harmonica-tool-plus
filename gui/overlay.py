@@ -85,6 +85,11 @@ _SYMBOL_KEYS = frozenset(",./;'[]\\-=`")
 
 _IS_WIN = sys.platform == "win32"
 
+#: 位置预设：悬浮窗上边缘放在屏幕高度的几成（屏幕下方那档按下边缘贴底算）。
+#: 默认「中间偏上」：游戏自己的口琴按键 UI 和血条、弹药都在屏幕下半部分，
+#: 准星在正中，放在准星上方最不挡事（v2.1.0 默认放在 64% 处，会挡住游戏 UI）。
+ANCHOR_TOPS = {"top": 0.08, "upper": 0.22, "lower": 0.60}
+
 if _IS_WIN:  # pragma: no cover - 只在 Windows 上走
     _user32 = ctypes.WinDLL("user32", use_last_error=True)
     _user32.GetWindowLongW.argtypes = (ctypes.c_void_p, ctypes.c_int)
@@ -389,7 +394,7 @@ class OverlayWindow(tk.Toplevel):
         return self._locked
 
     def apply_options(self, scale: float, alpha: float, lookahead_s: float, keyboard: bool,
-                      x: Optional[int], y: Optional[int]) -> None:
+                      x: Optional[int], y: Optional[int], anchor: str = "upper") -> None:
         if (scale, keyboard) != (self._scale, self._keyboard):
             self._scale, self._keyboard = scale, keyboard
             self.geo = _Geometry(scale * self._dpi, keyboard)
@@ -402,14 +407,19 @@ class OverlayWindow(tk.Toplevel):
                 pass
         self._lookahead_ms = max(1000.0, lookahead_s * 1000.0)
         self._compute_speed()
-        self.place_at(x, y)
+        self.place_at(x, y, anchor)
         self._apply_ex_style()
 
-    def place_at(self, x: Optional[int], y: Optional[int]) -> None:
+    def place_at(self, x: Optional[int], y: Optional[int], anchor: str = "upper") -> None:
+        """按预设放（custom 就用拖过的坐标；坐标不在任何一块屏幕上了就退回中间偏上）。"""
         g = self.geo
-        if x is None or y is None or not self._on_screen(x, y):
-            x = (self.winfo_screenwidth() - g.w) // 2
-            y = int(self.winfo_screenheight() * 0.64)
+        if anchor != "custom" or x is None or y is None or not self._on_screen(x, y):
+            screen_w, screen_h = self.winfo_screenwidth(), self.winfo_screenheight()
+            x = (screen_w - g.w) // 2
+            if anchor == "bottom":
+                y = screen_h - g.h - int(screen_h * 0.06)
+            else:
+                y = int(screen_h * ANCHOR_TOPS.get(anchor, ANCHOR_TOPS["upper"]))
         # Tk 的几何串里 "-100" 表示"离右边 100"，负坐标要写成 "+-100"
         self.geometry(f"{g.w}x{g.h}+{int(x)}+{int(y)}")
 
@@ -931,7 +941,8 @@ class OverlayController:
             return
         self.window.apply_options(settings.overlay_scale, settings.overlay_alpha,
                                   settings.overlay_lookahead, settings.overlay_keyboard,
-                                  settings.overlay_x, settings.overlay_y)
+                                  settings.overlay_x, settings.overlay_y,
+                                  settings.overlay_anchor)
 
     def _on_moved(self, x: int, y: int) -> None:
         self.app.on_overlay_moved(x, y)

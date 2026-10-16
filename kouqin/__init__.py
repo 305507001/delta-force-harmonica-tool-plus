@@ -44,6 +44,7 @@
 
 from .tune import (
     Cell,
+    HOLD,
     REST,
     PRESET_TUNES,
     Tune,
@@ -102,11 +103,11 @@ from .exporter import (
     export_lua,
 )
 
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 
 __all__ = [
     # 曲子与曲库
-    "Cell", "REST", "Tune", "TuneLibrary", "PRESET_TUNES", "notes_to_tune",
+    "Cell", "REST", "HOLD", "Tune", "TuneLibrary", "PRESET_TUNES", "notes_to_tune",
     "OCTAVE_COLORS", "OCTAVE_LABELS", "OCTAVE_ORDER", "STEP_DIGITS", "STEP_NAMES",
     # 配置
     "AppSettings", "DATA_DIR", "LIBRARY_DIR", "ROOT_DIR", "settings_path",

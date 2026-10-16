@@ -151,6 +151,7 @@ def cmd_play_tune(args) -> int:
     events, report = compile_notes(
         notes, layout, settings.timing_preset(),
         speed=settings.speed, transpose=args.transpose, fold=FoldMode.FOLD,
+        legato=settings.legato and not args.no_legato,
     )
     if not events:
         print("编译后没有事件，检查键位设置。")
@@ -229,6 +230,7 @@ def cmd_play(args) -> int:
     events, report = compile_notes(
         notes, layout, TIMING_PRESETS[args.timing],
         speed=args.speed, transpose=args.transpose, fold=args.fold,
+        legato=not args.no_legato,
     )
     if not events:
         print("错误：编译后没有事件。")
@@ -407,15 +409,20 @@ def cmd_selftest(args) -> int:
     # ---- 下面是面向"点格子"这一层的检查 ----
 
     def tune_model():
-        from kouqin.tune import Cell, REST, Tune
+        from kouqin.tune import Cell, HOLD, REST, Tune
         tune = Tune(name="t", bpm=120, beats_per_bar=4,
-                    cells=[Cell(0, 0), Cell(0, 0), REST, Cell(4, 0)])
+                    cells=[Cell(0, 0), HOLD, REST, Cell(4, 0), Cell(4, 0), HOLD, HOLD, REST])
         notes = tune.to_notes()
-        assert len(notes) == 2, f"相邻同音应合并，期望 2 个音，得到 {len(notes)}"
-        assert abs(notes[0].duration - 1000) < 0.01, f"长音时长错误：{notes[0].duration}"
-        assert abs(notes[1].start - 1500) < 0.01, f"第二个音起点错误：{notes[1].start}"
-        assert tune.bar_count == 1
-        return f"{len(notes)} 个音（同音自动合并），长音 {notes[0].duration:.0f}ms"
+        assert len(notes) == 3, f"期望 3 个音（延长 + 同音吹两下），得到 {len(notes)}"
+        assert abs(notes[0].duration - 1000) < 0.01, f"延长后时长错误：{notes[0].duration}"
+        assert abs(notes[1].start - 1500) < 0.01 and abs(notes[1].duration - 500) < 0.01, \
+            f"同音第一下错误：{notes[1]}"
+        assert abs(notes[2].start - 2000) < 0.01 and abs(notes[2].duration - 1500) < 0.01, \
+            f"同音第二下错误：{notes[2]}"
+        assert tune.note_count() == 3 and tune.bar_count == 2
+        orphan = Tune(name="o", bpm=120, cells=[HOLD, REST, HOLD, Cell(1, 0)]).to_notes()
+        assert len(orphan) == 1, "前面没有音可接的延长应当当休止"
+        return f"{len(notes)} 个音：延长 {notes[0].duration:.0f}ms，同音连吹两下"
     check("格子谱转音符", tune_model)
 
     def library_roundtrip():
@@ -446,7 +453,7 @@ def cmd_selftest(args) -> int:
                 continue
             if len(tune.cells) % tune.beats_per_bar != 0:
                 bad.append(f"{tune.name}(不是整小节)")
-            off_range = [c for c in tune.cells if not c.is_rest and not (48 <= c.pitch <= 85)]
+            off_range = [c for c in tune.cells if c.is_note and not (48 <= c.pitch <= 85)]
             if off_range:
                 bad.append(f"{tune.name}(超音域 {len(off_range)} 个)")
         assert not bad, "内置曲目有问题：" + "、".join(bad)
@@ -455,11 +462,14 @@ def cmd_selftest(args) -> int:
 
     def quantize_check():
         from kouqin.smf import Note as MidiNote
-        notes = [MidiNote(0, 500, 60), MidiNote(500, 500, 62), MidiNote(1000, 1000, 64)]
+        notes = [MidiNote(0, 500, 60), MidiNote(500, 500, 62), MidiNote(1000, 1000, 64),
+                 MidiNote(2000, 500, 64)]                 # 最后两个 E 是连着吹的两下
         tune = notes_to_tune(notes, "量化测试", bpm=120, beats_per_bar=4)
-        assert tune.note_count() == 4, f"期望 4 拍有音，得到 {tune.note_count()}"
-        assert len(tune.to_notes()) == 3, f"应还原成 3 个音，得到 {len(tune.to_notes())}"
-        return f"{tune.bar_count} 小节，{tune.note_count()} 拍有音"
+        back = tune.to_notes()
+        assert tune.note_count() == 4, f"期望 4 个音，得到 {tune.note_count()}"
+        assert [n.pitch for n in back] == [60, 62, 64, 64], f"音高不对：{[n.pitch for n in back]}"
+        assert abs(back[2].duration - 1000) < 0.01, f"长音没还原：{back[2].duration}"
+        return f"{tune.bar_count} 小节，{tune.note_count()} 个音，长音和同音重复都还原了"
     check("MIDI 量化成格子谱", quantize_check)
 
     def custom_keymap():
@@ -500,6 +510,61 @@ def cmd_selftest(args) -> int:
             assert back.validate_keymap(), "键位冲突没被检出"
         return "存取正常，冲突校验有效"
     check("设置存取", settings_roundtrip)
+
+    def legacy_format():
+        from kouqin.tune import Tune
+        legacy = {"version": 1, "name": "旧谱", "bpm": 120, "beats_per_bar": 4,
+                  "cells": [[0, 0], [0, 0], None, [4, 0], [4, 0], [4, 0], None, None]}
+        tune = Tune.from_dict(legacy)
+        notes = tune.to_notes()
+        assert [(n.start, n.duration, n.pitch) for n in notes] == [(0.0, 1000.0, 60), (1500.0, 1500.0, 67)], \
+            f"旧版曲谱应保持「连续同音 = 长音」的听感：{notes}"
+        assert tune.to_dict()["version"] == 2, "重新保存应写成新格式"
+        return "旧版曲谱读进来听感不变，存回去是新格式"
+    check("旧版曲谱兼容", legacy_format)
+
+    def preset_upgrade():
+        import json
+        import tempfile
+        from kouqin.tune import PRESET_TUNES, TuneLibrary, _LEGACY_PRESETS
+        with tempfile.TemporaryDirectory() as tmp:
+            lib = TuneLibrary(tmp)
+            for name in ("小星星", "欢乐颂"):
+                old = _LEGACY_PRESETS[name]
+                cells = []
+                for cell in old.cells:                      # 还原成旧版文件：延长写回成重复的音
+                    cells.append(cells[-1] if cell.is_hold else cell)
+                data = {"version": 1, "name": name, "bpm": old.bpm, "beats_per_bar": old.beats_per_bar,
+                        "cells": [None if c.is_rest else [c.step, c.octave] for c in cells]}
+                if name == "欢乐颂":
+                    data["cells"][0] = [6, 0]               # 用户改过的旧副本
+                with open(lib.path_of(name), "w", encoding="utf-8") as fp:
+                    json.dump(data, fp, ensure_ascii=False)
+            replaced = lib.upgrade_presets()
+            assert replaced == ["小星星"], f"只该换掉没改过的那首：{replaced}"
+            fresh = next(t for t in PRESET_TUNES if t.name == "小星星")
+            assert len(lib.load("小星星").to_notes()) == len(fresh.to_notes()), "没换成新版"
+            assert lib.load("欢乐颂").cells[0].step == 6, "用户改过的曲子被动了"
+        return "没改过的旧版内置曲目换成新版，改过的不动"
+    check("内置曲目升级", preset_upgrade)
+
+    def legato_transitions():
+        timing = TIMING_PRESETS["normal"]
+        score = parse_jianpu("T=120\n1 2 2 2'")         # 换键 / 同键连按 / 换修饰键
+        events, _ = compile_notes(score.notes, layout, timing, legato=True)
+        downs = [e for e in events if e.kind == "kd"]
+        ups = [e for e in events if e.kind == "ku"]
+        gaps = [round(downs[i + 1].t - ups[i].t, 1) for i in range(len(ups) - 1)]
+        assert gaps[0] == 0.0, f"换键不该留空隙：{gaps}"
+        assert abs(gaps[1] - timing.gap) < 0.05, f"同键连按要留 {timing.gap:.1f}ms：{gaps}"
+        assert abs(gaps[2] - timing.gap) < 0.05, f"同键（X）换修饰键也要真的松开：{gaps}"
+        events, _ = compile_notes(score.notes, layout, timing, legato=False)
+        downs = [e for e in events if e.kind == "kd"]
+        ups = [e for e in events if e.kind == "ku"]
+        apart = [round(downs[i + 1].t - ups[i].t, 1) for i in range(len(ups) - 1)]
+        assert all(abs(g - timing.gap) < 0.05 for g in apart), f"关掉连奏后每两个音都要留空：{apart}"
+        return f"连奏 {gaps} ms，关掉连奏 {apart} ms"
+    check("音符衔接", legato_transitions)
 
     # ---- 跟弹 ----
 
@@ -594,6 +659,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="节奏档：safe 稳健 / normal 标准 / tight 灵敏")
     parser.add_argument("--fold", choices=[FoldMode.FOLD, FoldMode.SKIP], default=FoldMode.FOLD,
                         help="超音域处理：fold 折叠（默认）/ skip 跳过")
+    parser.add_argument("--no-legato", action="store_true",
+                        help="每两个音之间都留一点空隙（游戏里漏音时试试）")
     parser.add_argument("--keytable", nargs="?", const="-", metavar="OUT.csv",
                         help="导出全音域键位表")
     parser.add_argument("--selftest", action="store_true", help="运行核心自检")

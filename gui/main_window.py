@@ -33,7 +33,7 @@ from kouqin.hotkeys import GlobalHotkeys
 from kouqin.layout import FoldMode, Layout
 from kouqin.preview import Preview
 from kouqin.settings import AppSettings, LIBRARY_DIR, settings_path
-from kouqin.tune import Tune, TuneLibrary
+from kouqin.tune import PRESET_REVISION, Tune, TuneLibrary
 
 from .composer_page import ComposerPage
 from .disclaimer import ask_disclaimer
@@ -106,7 +106,19 @@ class MainWindow(tk.Tk):
     # ================================================================== #
 
     def _install_presets_if_needed(self) -> None:
-        """第一次运行时把内置曲目铺进曲库，让用户开箱就有的玩。"""
+        """
+        第一次运行时把内置曲目铺进曲库，让用户开箱就有的玩。
+
+        内置曲谱改过版（PRESET_REVISION 变大）时，把曲库里没改过的旧副本换成新版。
+        """
+        self._upgraded_presets: List[str] = []
+        if self.settings.preset_revision < PRESET_REVISION:
+            try:
+                self._upgraded_presets = self.library.upgrade_presets()
+            except OSError:
+                pass
+            self.settings.preset_revision = PRESET_REVISION
+            self.settings.save()
         if self.settings.installed_presets and self.library.names():
             return
         try:
@@ -262,7 +274,7 @@ class MainWindow(tk.Tk):
         events, report = compile_notes(
             notes, self.layout, self.settings.timing_preset(),
             speed=self.settings.guide_speed if guide else self.settings.speed,
-            fold=FoldMode.FOLD,
+            fold=FoldMode.FOLD, legato=self.settings.legato,
         )
         if not events:
             self.log("编译后没有可演奏的音符，检查一下设置里的键位")
@@ -295,7 +307,7 @@ class MainWindow(tk.Tk):
             speed = self.settings.guide_speed if mode == MODE_GUIDE else self.settings.speed
         events, report = compile_notes(
             notes, self.layout, self.settings.timing_preset(),
-            speed=speed, transpose=transpose, fold=fold,
+            speed=speed, transpose=transpose, fold=fold, legato=self.settings.legato,
         )
         if not events:
             self.log("编译后没有可演奏的事件，检查键位设置或超音域策略")
@@ -530,7 +542,9 @@ class MainWindow(tk.Tk):
         """
         for settings in (self.settings, self.page_settings.settings):
             settings.overlay_x, settings.overlay_y = int(x), int(y)
+            settings.overlay_anchor = "custom"
         self.settings.save()
+        self.page_settings.on_overlay_moved()
 
     def on_overlay_adjusting(self, on: bool) -> None:
         """悬浮窗进入 / 退出「调整位置」状态（可能是双击悬浮窗退出的），同步设置页按钮。"""
@@ -584,6 +598,9 @@ class MainWindow(tk.Tk):
             self.log("提示：当前不是管理员权限。若游戏里完全没反应，请用「以管理员启动.bat」重开。")
         if not self.preview.available:
             self.log("提示：没检测到系统 MIDI 输出设备，试听按钮没声音（不影响正常演奏）")
+        if self._upgraded_presets:
+            self.log("内置曲目已更新到新版（重复的音不再被拼成长音）："
+                     + "、".join(self._upgraded_presets))
         self.log(f"设置文件：{settings_path()}")
 
     def on_close(self) -> None:

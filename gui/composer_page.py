@@ -8,7 +8,7 @@
     1. 格子按音高上色（低音蓝 / 中音绿 / 高音橙 / 更高紫），
        不用看文字就知道音是高是低。
     2. 格子里直接印着该按哪个键，看完就能对着键盘比划。
-    3. 连续两格填同一个音会自动连成一个长音，长音不用专门设。
+    3. 想让一个音拖长，后面的格子填「— 延长」；连续两格填同一个音会吹两下。
 """
 
 from __future__ import annotations
@@ -213,6 +213,10 @@ class ComposerPage(tk.Frame):
 
         selected = index == self._sel_index
 
+        if cell.is_hold:
+            self._draw_hold(x1, y1, x2, y2, index, selected)
+            return
+
         if cell.is_rest:
             fill, fg = Palette["panel_alt"], "#4d5866"
             outline = Palette["sel"] if selected else Palette["border"]
@@ -252,6 +256,35 @@ class ComposerPage(tk.Frame):
                                text=OCTAVE_LABELS[cell.octave][0],
                                fill=accent, font=("Microsoft YaHei UI", 8, "bold"))
 
+        self._hits.append((index, x1, y1, x2, y2))
+
+    def _held_note(self, index: int) -> Optional[Cell]:
+        """「延长」格子接的是哪个音（往前找到第一个音；中间碰到休止就没有）。"""
+        for cell in reversed(self.tune.cells[:index]):
+            if cell.is_note:
+                return cell
+            if cell.is_rest:
+                return None
+        return None
+
+    def _draw_hold(self, x1: float, y1: float, x2: float, y2: float,
+                   index: int, selected: bool) -> None:
+        """「延长」格子：用被延长那个音的颜色画一道横杠，一眼看出是谁拖长了。"""
+        canvas = self.canvas
+        note = self._held_note(index)
+        if note is None:
+            # 前面没有音可接：吹不出声，按休止的样子画、但标出来
+            bg, accent = Palette["panel_alt"], "#6b5a3a"
+        else:
+            bg, accent = OCTAVE_COLORS.get(note.octave, OCTAVE_COLORS[0])
+        outline = Palette["sel"] if selected else accent
+        canvas.create_rectangle(x1, y1, x2, y2, fill=bg, outline=outline,
+                                width=2 if selected else 1)
+        canvas.create_line(x1 + 8, (y1 + y2) / 2 - 6, x2 - 8, (y1 + y2) / 2 - 6,
+                           fill=accent, width=4)
+        canvas.create_text((x1 + x2) / 2, y2 - 14,
+                           text="延长" if note is not None else "延长（无音）",
+                           fill=accent, font=("Microsoft YaHei UI", 8))
         self._hits.append((index, x1, y1, x2, y2))
 
     # ================================================================== #

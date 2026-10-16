@@ -8,7 +8,12 @@
     或者填「休止」表示这一拍不吹。
 
 不需要知道时值、小节线、调号——想哪里响就点哪里。
-连续两个格子填同一个音时会自动拼成一个长音，所以长音也不用专门去设。
+想让一个音拖长，就在后面的格子里填「延长 —」（和简谱里的 "-" 一个意思）；
+连续两个格子填同一个音，会吹两下。
+
+（修改版改动：原来"连续两格同一个音"会自动拼成长音，结果真正需要重复吹的音
+——《小星星》开头的 do do、《欢乐颂》开头的 mi mi——全被吞掉，曲子听着断断续续。
+旧版存的曲谱读进来时会自动换算成「延长」，听起来和以前一模一样。）
 
 一首曲子就是一个 JSON 文件，放在「数据/曲库」下，可以直接复制给别人。
 """
@@ -28,6 +33,9 @@ __all__ = [
     "Tune",
     "TuneLibrary",
     "REST",
+    "HOLD",
+    "FORMAT_VERSION",
+    "PRESET_REVISION",
     "STEP_DIGITS",
     "STEP_NAMES",
     "OCTAVE_LABELS",
@@ -70,39 +78,54 @@ OCTAVE_COLORS: Dict[int, Tuple[str, str]] = {
 
 @dataclass(frozen=True)
 class Cell:
-    """一拍的内容。"""
+    """一拍的内容：一个音、休止，或者「延长」（接着吹前一个音）。"""
 
-    step: int = -1        # 0..6 对应 do..si；-1 表示休止
+    step: int = -1        # 0..6 对应 do..si；-1 休止；-2 延长
     octave: int = 0       # -1 低音 / 0 中音 / 1 高音 / 2 更高
 
     # ---------------- 属性 ----------------
 
     @property
     def is_rest(self) -> bool:
-        return self.step < 0
+        return self.step == -1
+
+    @property
+    def is_hold(self) -> bool:
+        """「延长」：这一拍不换音，前一个音接着吹。"""
+        return self.step == -2
+
+    @property
+    def is_note(self) -> bool:
+        return self.step >= 0
 
     @property
     def pitch(self) -> int:
-        """对应的 MIDI 音高（休止符返回 0，调用方应先查 is_rest）。"""
-        if self.is_rest:
+        """对应的 MIDI 音高（休止 / 延长返回 0，调用方应先查 is_note）。"""
+        if not self.is_note:
             return 0
         return 60 + self.octave * 12 + STEP_SEMITONE[self.step]
 
     @property
     def digit(self) -> str:
         """格子里显示的大字。"""
+        if self.is_hold:
+            return "—"
         return "休" if self.is_rest else STEP_DIGITS[self.step]
 
     @property
     def solfa(self) -> str:
         """唱名。"""
+        if self.is_hold:
+            return "延长"
         return "休止" if self.is_rest else STEP_NAMES[self.step]
 
     @property
     def octave_label(self) -> str:
-        return "" if self.is_rest else OCTAVE_LABELS.get(self.octave, "")
+        return OCTAVE_LABELS.get(self.octave, "") if self.is_note else ""
 
     def describe(self) -> str:
+        if self.is_hold:
+            return "延长上一个音"
         if self.is_rest:
             return "休止"
         return f"{OCTAVE_LABELS.get(self.octave, '')} {self.solfa}"
@@ -110,12 +133,16 @@ class Cell:
     # ---------------- 序列化 ----------------
 
     def to_json(self):
+        if self.is_hold:
+            return "-"
         return None if self.is_rest else [self.step, self.octave]
 
     @staticmethod
     def from_json(raw) -> "Cell":
         if raw is None:
             return REST
+        if raw == "-":
+            return HOLD
         if isinstance(raw, (list, tuple)) and len(raw) >= 2:
             step = int(raw[0])
             octave = int(raw[1])
@@ -126,6 +153,26 @@ class Cell:
 
 #: 休止符常量
 REST = Cell(-1, 0)
+
+#: 延长（接着吹前一个音）
+HOLD = Cell(-2, 0)
+
+#: 曲谱文件格式版本。1 = 旧版（连续同音自动拼成长音）；2 = 有「延长」记号，同音重复就吹两下
+FORMAT_VERSION = 2
+
+
+def legacy_to_holds(cells: Sequence[Cell]) -> List[Cell]:
+    """
+    旧版曲谱 → 新版：把"连续同音"换成「音 + 延长」。
+
+    换算后吹出来和旧版完全一样，用户以前编的曲子不会因为升级而变调。
+    """
+    result: List[Cell] = []
+    previous: Optional[Cell] = None
+    for cell in cells:
+        result.append(HOLD if (cell.is_note and cell == previous) else cell)
+        previous = cell
+    return result
 
 
 # --------------------------------------------------------------------------- #
@@ -178,17 +225,18 @@ class Tune:
         """删掉尾部多余的空小节，但至少留 keep_bars 个小节。"""
         last = -1
         for i, cell in enumerate(self.cells):
-            if not cell.is_rest:
+            if not cell.is_rest:            # 延长也算有内容：它是前一个音的一部分
                 last = i
         keep = max(self.beats_per_bar * keep_bars, ((last // self.beats_per_bar) + 1) * self.beats_per_bar)
         if keep < len(self.cells):
             del self.cells[keep:]
 
     def is_empty(self) -> bool:
-        return all(cell.is_rest for cell in self.cells)
+        return not any(cell.is_note for cell in self.cells)
 
     def note_count(self) -> int:
-        return sum(1 for c in self.cells if not c.is_rest)
+        """一共要吹几下（延长不算新的一下）。"""
+        return sum(1 for c in self.cells if c.is_note)
 
     def duration_ms(self) -> float:
         return len(self.cells) * (60_000.0 / max(1.0, self.bpm))
@@ -199,19 +247,19 @@ class Tune:
         """
         转成音符表。
 
-        相邻的相同格子会自动粘成一个长音——这样用户想表达长音，
-        只要连着点两格同一个音就行，不用学任何时值记号。
+        每个音格都是新吹的一下；后面跟着的「延长」格子把它拖长。
+        前面没有音可接的「延长」（开头、休止之后）当休止处理。
         """
         unit = 60_000.0 / max(1.0, self.bpm)
         notes: List[Note] = []
         i = 0
         while i < len(self.cells):
             cell = self.cells[i]
-            if cell.is_rest:
+            if not cell.is_note:
                 i += 1
                 continue
             j = i + 1
-            while j < len(self.cells) and self.cells[j] == cell:
+            while j < len(self.cells) and self.cells[j].is_hold:
                 j += 1
             notes.append(Note(start=i * unit, duration=(j - i) * unit, pitch=cell.pitch))
             i = j
@@ -221,7 +269,7 @@ class Tune:
 
     def to_dict(self) -> dict:
         return {
-            "version": 1,
+            "version": FORMAT_VERSION,
             "name": self.name,
             "bpm": round(float(self.bpm), 2),
             "beats_per_bar": self.beats_per_bar,
@@ -232,11 +280,18 @@ class Tune:
     def from_dict(data: dict) -> "Tune":
         bpb = int(data.get("beats_per_bar", 4) or 4)
         bpb = bpb if 1 <= bpb <= 12 else 4
+        cells = [Cell.from_json(raw) for raw in data.get("cells", [])]
+        try:
+            version = int(data.get("version", 1) or 1)
+        except (TypeError, ValueError):
+            version = 1
+        if version < 2:
+            cells = legacy_to_holds(cells)
         return Tune(
             name=str(data.get("name", "未命名")),
             bpm=float(data.get("bpm", 90.0) or 90.0),
             beats_per_bar=bpb,
-            cells=[Cell.from_json(raw) for raw in data.get("cells", [])],
+            cells=cells,
         )
 
     def copy(self, new_name: Optional[str] = None) -> "Tune":
@@ -360,6 +415,33 @@ class TuneLibrary:
                 count += 1
         return count
 
+    def upgrade_presets(self) -> List[str]:
+        """
+        把曲库里「没改过的旧版内置曲目」换成新版，返回换掉的曲名。
+
+        旧版内置曲谱按"连续同音 = 长音"写，重复的音（do do、mi mi）被拼成了长音。
+        只有和旧版内置曲谱一模一样的副本才会被换掉；用户改过的、删掉的都不动。
+        """
+        replaced: List[str] = []
+        for tune in PRESET_TUNES:
+            legacy = _LEGACY_PRESETS.get(tune.name)
+            path = self.path_of(tune.name)
+            if legacy is None or not os.path.exists(path):
+                continue
+            try:
+                with open(path, "r", encoding="utf-8") as fp:
+                    data = json.load(fp)
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(data, dict) or int(data.get("version", 1) or 1) >= FORMAT_VERSION:
+                continue
+            old = Tune.from_dict(data)
+            if (old.cells == legacy.cells and old.beats_per_bar == legacy.beats_per_bar
+                    and abs(old.bpm - legacy.bpm) < 0.01):
+                self.save(tune.copy())
+                replaced.append(tune.name)
+        return replaced
+
 
 def notes_to_tune(notes: Sequence[Note], name: str, bpm: float = 90.0,
                   beats_per_bar: int = 4, max_bars: int = 96) -> Tune:
@@ -367,8 +449,9 @@ def notes_to_tune(notes: Sequence[Note], name: str, bpm: float = 90.0,
     把一列音符量化成格子谱。
 
     用途：把任意 MIDI 旋律转成"点格子"格式，存进曲库后就能和其他曲子一样点播。
-    做法是把每个音的起点四舍五入到最近的拍，再按占用的拍数填满格子；
+    做法是把每个音的起点四舍五入到最近的拍，起点那一格填音，后面占用的拍填「延长」；
     遇到重叠（原曲有和弦）时，后来的音会盖掉前一个——反正口琴也只能吹单音。
+    原曲里同一个音连着吹几下，量化后也还是几下（不会被拼成一个长音）。
     """
     bpm = max(20.0, min(400.0, float(bpm)))
     unit = 60_000.0 / bpm
@@ -393,7 +476,7 @@ def notes_to_tune(notes: Sequence[Note], name: str, bpm: float = 90.0,
         for offset in range(span):
             index = start_beat + offset
             if 0 <= index < limit:
-                tune.cells[index] = cell
+                tune.cells[index] = cell if offset == 0 else HOLD
 
     tune.trim_trailing_rests(keep_bars=1)
     return tune
@@ -403,8 +486,9 @@ def notes_to_tune(notes: Sequence[Note], name: str, bpm: float = 90.0,
 # 内置曲目
 # --------------------------------------------------------------------------- #
 
-#: 简谱字符串 -> 格子。语法和「谱曲」页一样：数字是音，' 升八度，, 降八度，0 或 - 是休止。
-#: 每首曲子都按"一拍一格"重排过，所以不会出现半拍、附点这些让人挠头的东西。
+#: 简谱字符串 -> 格子：数字是音，' 升八度，, 降八度，- 是延长（接着吹前一个音），0 是休止。
+#: 每首曲子都按"一拍一格"重排过，所以不会出现半拍、附点这些让人挠头的东西
+#: （原曲里的八分音符按一拍记，旋律的先后顺序不变）。
 
 
 def _parse_grid(text: str, octave: int = 0) -> List[Cell]:
@@ -412,14 +496,17 @@ def _parse_grid(text: str, octave: int = 0) -> List[Cell]:
     把紧凑的格子记号解析成 Cell 列表。
 
     记号： ``1``~``7`` 音级，``'`` 升一个八度，``,`` 降一个八度，
-    ``0`` / ``-`` / ``x`` 表示休止，``|`` 只是视觉分隔会被忽略。
+    ``-`` 延长前一个音，``0`` / ``x`` / ``.`` 表示休止，``|`` 只是视觉分隔会被忽略。
     """
     cells: List[Cell] = []
     for token in text.replace("|", " ").split():
         token = token.strip()
         if not token:
             continue
-        if token[0] in "0-x.":
+        if token[0] == "-":
+            cells.append(HOLD)
+            continue
+        if token[0] in "0x.":
             cells.append(REST)
             continue
         if token[0] not in "1234567":
@@ -444,38 +531,84 @@ def _tune(name: str, bpm: float, beats: int, grid: str) -> Tune:
     return Tune(name=name, bpm=bpm, beats_per_bar=beats, cells=cells)
 
 
+#: 内置曲目的版本：曲谱改动后 +1，用户曲库里没改过的旧副本会在启动时换成新版
+PRESET_REVISION = 2
+
 PRESET_TUNES: List[Tune] = [
     _tune("小星星", 100, 4,
-          "1 1 5 5 | 6 6 5 5 | 4 4 3 3 | 2 2 1 1 |"
-          "5 5 4 4 | 3 3 2 2 | 5 5 4 4 | 3 3 2 2 |"
-          "1 1 5 5 | 6 6 5 5 | 4 4 3 3 | 2 2 1 0 |"),
+          "1 1 5 5 | 6 6 5 - | 4 4 3 3 | 2 2 1 - |"
+          "5 5 4 4 | 3 3 2 - | 5 5 4 4 | 3 3 2 - |"
+          "1 1 5 5 | 6 6 5 - | 4 4 3 3 | 2 2 1 - |"),
 
     _tune("两只老虎", 108, 4,
-          "1 2 3 1 | 1 2 3 1 | 3 4 5 5 | 3 4 5 5 |"
-          "5 6 5 4 | 3 1 3 1 | 5 6 5 4 | 3 1 3 1 |"
-          "2 5 1 1 | 2 5 1 0 |"),
+          "1 2 3 1 | 1 2 3 1 | 3 4 5 - | 3 4 5 - |"
+          "5 6 5 4 | 3 - 1 - | 5 6 5 4 | 3 - 1 - |"
+          "1 5, 1 - | 1 5, 1 - |"),
 
     _tune("生日快乐", 100, 3,
-          "5 5 6 | 5 1' 7 | 5 5 6 | 5 2' 1' |"
-          "5 5 5' | 3' 1' 7 | 6 4' 3' | 2' 1' 1' |"),
+          "5 5 6 | 5 1' 7 | - 5 5 | 6 5 2' |"
+          "1' - 5 | 5 5' 3' | 1' 7 6 | 4' 4' 3' |"
+          "1' 2' 1' | - - 0 |"),
 
     _tune("欢乐颂", 112, 4,
-          "3 3 4 5 | 5 4 3 2 | 1 1 2 3 | 3 3 2 2 |"
-          "3 3 4 5 | 5 4 3 2 | 1 1 2 3 | 2 2 1 0 |"),
+          "3 3 4 5 | 5 4 3 2 | 1 1 2 3 | 3 2 2 - |"
+          "3 3 4 5 | 5 4 3 2 | 1 1 2 3 | 2 1 1 - |"),
 
+    # 这一首保持原作者的编排不变（只是把"连续同音 = 长音"改写成明确的「延长」，听起来和以前一样）
     _tune("世上只有妈妈好", 84, 4,
-          "6 5 3 3 | 5 6 1' 1' | 5 3 2 2 | 2 3 5 5 |"
-          "6 5 3 3 | 5 6 1' 1' | 5 3 2 2 | 1 1 1 0 |"),
+          "6 5 3 - | 5 6 1' - | 5 3 2 - | - 3 5 - |"
+          "6 5 3 - | 5 6 1' - | 5 3 2 - | 1 - - 0 |"),
 
     _tune("送别", 76, 4,
-          "5 3 5 1' | 7 1' 7 6 | 5 3 5 1' | 7 1' 2' 2' |"
-          "5 3 5 1' | 7 1' 7 6 | 5 3 5 2' | 1' 1' 1' 0 |"),
+          "5 3 5 1' | - 6 1' 5 | - 5 1 2 | 3 2 1 2 | - - 0 "
+          "5 3 5 1' 7 | 6 1' 5 - | 5 2 3 4 7, | 1 - - 0 |"
+          "6 1' 1' - | 7 6 7 1' | - 6 7 1' | 6 6 5 3 1 | 2 - - 0 |"
+          "5 3 5 1' 7 | 6 1' 5 - | 5 2 3 4 7, | 1 - - 0 |"),
 
     _tune("玛丽有只小羊羔", 96, 4,
-          "3 2 1 2 | 3 3 3 0 | 2 2 2 0 | 3 5 5 0 |"
-          "3 2 1 2 | 3 3 3 3 | 2 2 3 2 | 1 0 0 0 |"),
+          "3 2 1 2 | 3 3 3 - | 2 2 2 - | 3 5 5 - |"
+          "3 2 1 2 | 3 3 3 3 | 2 2 3 2 | 1 - - 0 |"),
 
+    # 这一首保持原作者的编排不变（同上）
     _tune("划船歌", 92, 4,
-          "5 5 5 3 | 5 5 5 3 | 5 3 5 3 | 2 2 2 0 |"
-          "5 5 5 3 | 5 5 5 3 | 5 3 5 3 | 2 2 1 0 |"),
+          "5 - - 3 | 5 - - 3 | 5 3 5 3 | 2 - - 0 |"
+          "5 - - 3 | 5 - - 3 | 5 3 5 3 | 2 - 1 0 |"),
 ]
+
+
+def _legacy_tune(name: str, bpm: float, beats: int, grid: str) -> Tune:
+    """按旧版规则（连续同音 = 长音）解析的旧内置曲谱，只用来认出用户曲库里没改过的旧副本。"""
+    tune = _tune(name, bpm, beats, grid)
+    tune.cells = legacy_to_holds(tune.cells)
+    return tune
+
+
+#: v2.1.0 及以前的内置曲谱（原样保留，见 TuneLibrary.upgrade_presets）
+_LEGACY_PRESETS: Dict[str, Tune] = {t.name: t for t in (
+    _legacy_tune("小星星", 100, 4,
+                 "1 1 5 5 | 6 6 5 5 | 4 4 3 3 | 2 2 1 1 |"
+                 "5 5 4 4 | 3 3 2 2 | 5 5 4 4 | 3 3 2 2 |"
+                 "1 1 5 5 | 6 6 5 5 | 4 4 3 3 | 2 2 1 0 |"),
+    _legacy_tune("两只老虎", 108, 4,
+                 "1 2 3 1 | 1 2 3 1 | 3 4 5 5 | 3 4 5 5 |"
+                 "5 6 5 4 | 3 1 3 1 | 5 6 5 4 | 3 1 3 1 |"
+                 "2 5 1 1 | 2 5 1 0 |"),
+    _legacy_tune("生日快乐", 100, 3,
+                 "5 5 6 | 5 1' 7 | 5 5 6 | 5 2' 1' |"
+                 "5 5 5' | 3' 1' 7 | 6 4' 3' | 2' 1' 1' |"),
+    _legacy_tune("欢乐颂", 112, 4,
+                 "3 3 4 5 | 5 4 3 2 | 1 1 2 3 | 3 3 2 2 |"
+                 "3 3 4 5 | 5 4 3 2 | 1 1 2 3 | 2 2 1 0 |"),
+    _legacy_tune("世上只有妈妈好", 84, 4,
+                 "6 5 3 3 | 5 6 1' 1' | 5 3 2 2 | 2 3 5 5 |"
+                 "6 5 3 3 | 5 6 1' 1' | 5 3 2 2 | 1 1 1 0 |"),
+    _legacy_tune("送别", 76, 4,
+                 "5 3 5 1' | 7 1' 7 6 | 5 3 5 1' | 7 1' 2' 2' |"
+                 "5 3 5 1' | 7 1' 7 6 | 5 3 5 2' | 1' 1' 1' 0 |"),
+    _legacy_tune("玛丽有只小羊羔", 96, 4,
+                 "3 2 1 2 | 3 3 3 0 | 2 2 2 0 | 3 5 5 0 |"
+                 "3 2 1 2 | 3 3 3 3 | 2 2 3 2 | 1 0 0 0 |"),
+    _legacy_tune("划船歌", 92, 4,
+                 "5 5 5 3 | 5 5 5 3 | 5 3 5 3 | 2 2 2 0 |"
+                 "5 5 5 3 | 5 5 5 3 | 5 3 5 3 | 2 2 1 0 |"),
+)}

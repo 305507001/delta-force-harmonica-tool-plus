@@ -13,10 +13,14 @@
    时长，不压缩这些保命余量。
 
 2. 单声部槽位排布
-   口琴一次只能发一个音。遇到和前一个音重叠、或者首尾紧贴留不出 gap 的音符时，
-   优先把前一个音**缩短**到刚好空出 gap——但绝不短于 min_hold，所以不会切出
+   口琴一次只能发一个音。前一个音松开到下一个音按下之间要隔多久，看两个音的关系：
+       同一个键连按        至少 gap——中间必须真的松开过，游戏才认第二下
+       要换鼠标修饰键      至少 mod_lead——修饰键在前一个音松开后、下一个音按下前切换
+       换了一个键          不用隔（连奏）：松开和按下在同一时刻，先松后按
+   留不出这段间隔时，优先把前一个音**缩短**——但绝不短于 min_hold，所以不会切出
    零时长的按键；实在缩不出来（比如和弦里几个音同时起），才把这个音**顺延**
    到前一个音之后。排出来的"槽位"互不重叠，也不会一个音一个音地越拖越晚。
+   （早先每两个音之间都固定空一个 gap，连奏的旋律听起来一顿一顿的。）
 
 3. 修饰键差分切换
    同一段旋律往往连续多个音用同一套修饰键，此时完全不用松手切换。
@@ -76,7 +80,7 @@ class Timing:
     def describe(self) -> str:
         return (
             f"修饰提前 {self.mod_lead:.0f}ms / 最短按住 {self.min_hold:.0f}ms / "
-            f"音符间隔 {self.gap:.0f}ms"
+            f"同键连按间隔 {self.gap:.0f}ms"
         )
 
 
@@ -190,6 +194,7 @@ def compile_notes(
     transpose: int = 0,
     fold: str = FoldMode.FOLD,
     track_channel: int = 0,
+    legato: bool = True,
 ) -> Tuple[List[Event], CompileReport]:
     """
     把音符序列编译成事件流。
@@ -198,6 +203,7 @@ def compile_notes(
     :param speed:      播放倍速，只压缩音符时长，不压缩时序余量
     :param transpose:  移调半音数
     :param fold:       超音域处理策略，见 :class:`kouqin.layout.FoldMode`
+    :param legato:     True = 换键时不留空隙（默认）；False = 每两个音之间都留 gap（兼容性最好）
     :returns: ``(事件列表, 统计报告)``，排布好的槽位在 ``报告.slots`` 里
     """
     report = CompileReport()
@@ -231,7 +237,7 @@ def compile_notes(
     report.raw_length_ms = max((n.end for n in ordered), default=0.0)
 
     # ---- 第二步：单声部槽位排布 ----
-    slots = _arrange_slots(planned, timing)
+    slots = _arrange_slots(planned, timing, legato)
 
     # ---- 第三步：生成事件（修饰键差分切换） ----
     events: List[Event] = []
@@ -278,8 +284,16 @@ def compile_notes(
     return events, report
 
 
+def _separation(prev: Combo, nxt: Combo, timing: Timing, legato: bool) -> float:
+    """前一个音松开到下一个音按下，至少要隔多久（毫秒）。"""
+    need = timing.mod_lead if tuple(prev.mods) != tuple(nxt.mods) else 0.0
+    if prev.key == nxt.key or not legato:
+        need = max(need, timing.gap)
+    return need
+
+
 def _arrange_slots(planned: Sequence[Tuple[float, float, Combo, int, int]],
-                   timing: Timing) -> List[Slot]:
+                   timing: Timing, legato: bool = True) -> List[Slot]:
     """
     单声部槽位排布（思路见模块文档第 2 条）。
 
@@ -292,14 +306,15 @@ def _arrange_slots(planned: Sequence[Tuple[float, float, Combo, int, int]],
         hold = max(duration, timing.min_hold)
         if slots:
             prev = slots[-1]
-            if start < prev.end + timing.gap:
-                # 前一个音最晚只能按到 start - gap，而且不能短于 min_hold
-                room = start - timing.gap - prev.start
+            sep = _separation(prev.combo, combo, timing, legato)
+            if start < prev.end + sep:
+                # 前一个音最晚只能按到 start - sep，而且不能短于 min_hold
+                room = start - sep - prev.start
                 if room >= timing.min_hold:
                     slots[-1] = replace(prev, hold=room)
                 else:
                     slots[-1] = replace(prev, hold=timing.min_hold)
-                    start = prev.start + timing.min_hold + timing.gap
+                    start = prev.start + timing.min_hold + sep
         slots.append(Slot(start, hold, combo, pitch, played))
 
     # 第一个音就要按修饰键时，开头没有提前量可用（切换时刻会被截到 0，

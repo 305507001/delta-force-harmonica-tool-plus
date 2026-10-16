@@ -68,10 +68,11 @@ class DrySender:
 class Smoke:
     def __init__(self) -> None:
         from gui.main_window import MainWindow
-        from kouqin.tune import Cell, REST
+        from kouqin.tune import HOLD, Cell, REST
 
         self.Cell = Cell
         self.REST = REST
+        self.HOLD = HOLD
 
         self.window = MainWindow()
         self.sender = DrySender()
@@ -147,17 +148,18 @@ class Smoke:
         page.var_name.set(self.saved_name)
         page._on_name_change()
 
-        # 手动往格子里塞一段音：do do sol sol mi mi do(长)
-        pattern = [(0, 0), (0, 0), (4, 0), (4, 0), (2, 0), (2, 0), (0, 0), (0, 0)]
-        for index, (step, octave) in enumerate(pattern):
-            page._apply_cell(index, self.Cell(step, octave))
+        # 手动往格子里塞一段音：do do sol sol mi — do —（两个延长）
+        pattern = [(0, 0), (0, 0), (4, 0), (4, 0), (2, 0), None, (0, 0), None]
+        for index, item in enumerate(pattern):
+            page._apply_cell(index, self.HOLD if item is None else self.Cell(*item))
         page._redraw()
 
         tune = page.current_tune()
-        self.say(tune.note_count() == 8, "谱曲页填入音符",
-                 f"{tune.note_count()} 拍有音，{tune.bar_count} 小节")
-        self.say(len(tune.to_notes()) == 4, "相邻同音自动合并成长音",
-                 f"8 拍 -> {len(tune.to_notes())} 个音")
+        notes = tune.to_notes()
+        self.say(tune.note_count() == 6, "谱曲页填入音符",
+                 f"{tune.note_count()} 个音，{tune.bar_count} 小节")
+        self.say(len(notes) == 6 and notes[1].pitch == 60 and notes[4].duration > notes[3].duration,
+                 "同音连吹两下、延长把音拖长", f"8 拍 -> {len(notes)} 个音")
 
     def step_compose_save(self) -> None:
         page = self.window.page_composer
