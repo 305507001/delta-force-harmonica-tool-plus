@@ -105,6 +105,8 @@ class Smoke:
             self.step_guide_play,
             self.step_guide_finish,
             self.step_auto_after_guide,
+            self.step_seek_bar,
+            self.step_seek_finish,
             self.step_overlay_adjust,
             self.step_settings_overlay,
             self.step_overlay_long_press,
@@ -238,6 +240,42 @@ class Smoke:
         self.say(self.window.player.sender is self.sender, "自动演奏换回了原来的注入器")
         self._wait_player()
         self.say(self.sender.count > before, "换回后照常发出按键事件", f"{self.sender.count - before} 条")
+
+    def step_seek_bar(self) -> None:
+        from types import SimpleNamespace
+        self.injected_before_seek = self.sender.count
+        self.window.play_tune_by_name(self.saved_name, "guide")
+        deadline = time.time() + 2
+        while self.window.player.state != "playing" and time.time() < deadline:
+            self.window.update()
+            time.sleep(0.01)
+        self.window.toggle_pause()
+        self.window.update()
+        page = self.window.page_library
+        self.say(self.window.player.state == "paused" and page.btn_pause.cget("text").endswith("继续"),
+                 "暂停后按钮变成「继续」")
+        bar = page.progress
+        x = 8 + (max(40, bar.winfo_width()) - 16) * 0.6
+        page._scrub_move(SimpleNamespace(x=x))
+        dragging = page.lbl_time.cget("text").startswith("→")
+        page._scrub_end(SimpleNamespace(x=x))
+        self.window.update()
+        player = self.window.player
+        target = player.total * 0.6
+        judge = self.window.overlay.judge
+        self.say(dragging and abs(player.position - target) < 60 and player.state == "paused",
+                 "拖进度条跳到 60%，仍保持暂停", f"{player.position:.0f} / 目标 {target:.0f} ms")
+        self.say(judge is not None and judge.skipped > 0 and judge.missed == 0,
+                 "跳过去的音不算漏", judge.summary() if judge else "")
+        self.window.toggle_pause()
+
+    def step_seek_finish(self) -> None:
+        self._wait_player()
+        judge = self.window.overlay.judge
+        self.say(not self.window.player.is_active and judge is not None
+                 and judge.missed == judge.total < len(judge.slots),
+                 "跳转后继续跟弹到结束，只统计没跳过的音", judge.summary() if judge else "")
+        self.say(self.sender.count == self.injected_before_seek, "跟弹拖进度条全程没发按键")
 
     def step_overlay_adjust(self) -> None:
         overlay = self.window.overlay

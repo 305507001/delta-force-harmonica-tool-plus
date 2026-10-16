@@ -702,6 +702,26 @@ def cmd_selftest(args) -> int:
         return judge.summary()
     check("跟弹判定", judge_check)
 
+    def judge_seek():
+        from kouqin.practice import Judge, Mark
+        score = parse_jianpu("T=120\n1 2 3 4 5 6 7 1'")
+        _, report = compile_notes(score.notes, layout, TIMING_PRESETS["normal"])
+        s = report.slots
+        judge = Judge(s)
+        judge.press(s[0].combo.key, s[0].combo.mods, s[0].start)
+        judge.seek(s[4].start)                                   # 往后跳：第 2~4 个音跳过
+        assert judge.marks[1:4] == [Mark.SKIP] * 3 and judge.missed == 0, f"往后跳不该算漏：{judge.marks}"
+        assert judge.total == len(s) - 3
+        judge.sweep(s[5].start + 500)                            # 第 5、6 个没按 → 漏
+        assert judge.missed == 2
+        judge.seek(s[2].start)                                   # 往回跳：第 3 个起重新判
+        assert judge.missed == 0 and judge.perfect == 1 and judge.cursor == 2, judge.summary()
+        assert judge.marks[1] == Mark.SKIP and all(m == Mark.PENDING for m in judge.marks[2:])
+        judge.finish()
+        assert judge.total == len(s) - 1 and "跳过 1 个" in judge.summary(), judge.summary()
+        return "往后跳不算漏、往回跳重新判：" + judge.summary()
+    check("跟弹拖进度条", judge_seek)
+
     def difficulty_check():
         from kouqin.practice import difficulty
         from kouqin.tune import PRESET_TUNES
