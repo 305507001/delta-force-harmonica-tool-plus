@@ -28,7 +28,7 @@ import time
 import tkinter as tk
 from typing import Dict, List, Optional
 
-from kouqin.engine import PlayState, Player, compile_notes
+from kouqin.engine import NullSender, PlayState, Player, compile_notes
 from kouqin.hotkeys import GlobalHotkeys
 from kouqin.layout import FoldMode, Layout
 from kouqin.preview import Preview
@@ -38,11 +38,16 @@ from kouqin.tune import Tune, TuneLibrary
 from .composer_page import ComposerPage
 from .disclaimer import ask_disclaimer
 from .library_page import LibraryPage
+from .overlay import OverlayController
 from .settings_page import SettingsPage
-from .theme import Palette, apply_theme, make_button, make_label
+from .theme import Palette, add_hover, apply_theme, make_button, make_label
 
 APP_NAME = "口琴工坊"
-APP_SUB = "三角洲行动 · 口琴自动演奏"
+APP_SUB = "三角洲行动 · 口琴自动演奏 / 跟弹提示"
+
+#: 两种演奏方式：auto = 程序替你按；guide = 跟弹，程序只在悬浮窗里提示、一个键都不按
+MODE_AUTO = "auto"
+MODE_GUIDE = "guide"
 
 #: 顶部导航：(标识, 显示名)
 TABS = (
@@ -81,6 +86,12 @@ class MainWindow(tk.Tk):
         self.hotkeys = GlobalHotkeys(poll_interval=0.02)
         self.current_tune: Optional[Tune] = None
         self._countdown_timer: Optional[str] = None
+        self.play_mode = MODE_AUTO
+        self._play_name = ""
+        # 跟弹时换上"什么都不发"的注入器；_input_sender 记着自动演奏该用的那个
+        self._null_sender = NullSender()
+        self._input_sender = self.player.sender
+        self.overlay = OverlayController(self)
 
         self._install_presets_if_needed()
         self._build()
@@ -130,6 +141,7 @@ class MainWindow(tk.Tk):
                 font=("Microsoft YaHei UI", 10), highlightthickness=0,
             )
             button.pack(side=tk.LEFT, padx=2, pady=10)
+            add_hover(button)
             self._tab_buttons[key] = button
 
         # 帮助按钮放最右边，随时能翻出使用步骤
@@ -234,24 +246,29 @@ class MainWindow(tk.Tk):
         self.hotkeys.bind("f8", lambda: self.after(0, self.stop))
         self.hotkeys.start()
 
-    def play_tune(self, tune: Tune) -> None:
-        """演奏一首曲子。"""
+    def play_tune(self, tune: Tune, mode: str = MODE_AUTO) -> None:
+        """
+        演奏一首曲子。
+
+        :param mode: ``auto`` 自动演奏（程序替你按键）；
+                     ``guide`` 跟弹（悬浮窗提示，玩家自己按，程序不发送任何按键）
+        """
         notes = tune.to_notes()
         if not notes:
             self.log(f"《{tune.name}》里还没有音，先去「谱曲」页填几拍吧")
             return
 
+        guide = mode == MODE_GUIDE
         events, report = compile_notes(
             notes, self.layout, self.settings.timing_preset(),
-            speed=self.settings.speed, fold=FoldMode.FOLD,
+            speed=self.settings.guide_speed if guide else self.settings.speed,
+            fold=FoldMode.FOLD,
         )
         if not events:
             self.log("编译后没有可演奏的音符，检查一下设置里的键位")
             return
 
-        self.player.stop()
-        self.player.sender.stats.__init__()          # 重置注入计数
-        self.player.load(events)
+        self._start_session(events, report, tune.name, mode)
         self.current_tune = tune
 
         self.show_page("library")
@@ -259,39 +276,77 @@ class MainWindow(tk.Tk):
         self.btn_stop.configure(state=tk.NORMAL)
 
         if self.settings.countdown > 0:
-            self.log(f"《{tune.name}》：{report.summary()}，"
+            self.log(f"《{tune.name}》{self._mode_note(mode)}：{report.summary()}，"
                      f"{self.settings.countdown:.0f} 秒后开始，快切到游戏")
         else:
-            self.log(f"《{tune.name}》：{report.summary()}，开始演奏")
+            self.log(f"《{tune.name}》{self._mode_note(mode)}：{report.summary()}，开始")
 
         self.player.play(countdown_ms=self.settings.countdown * 1000.0)
         self._start_countdown_ticker()
 
     def play_notes(self, notes, name: str = "进阶模式", transpose: int = 0,
-                   fold: str = FoldMode.FOLD, speed: Optional[float] = None) -> None:
+                   fold: str = FoldMode.FOLD, speed: Optional[float] = None,
+                   mode: str = MODE_AUTO) -> None:
         """演奏一组现成的音符（进阶页 / 卷帘用）。"""
         if not notes:
             self.log("没有可演奏的音符")
             return
+        if speed is None:
+            speed = self.settings.guide_speed if mode == MODE_GUIDE else self.settings.speed
         events, report = compile_notes(
             notes, self.layout, self.settings.timing_preset(),
-            speed=speed if speed is not None else self.settings.speed,
-            transpose=transpose, fold=fold,
+            speed=speed, transpose=transpose, fold=fold,
         )
         if not events:
             self.log("编译后没有可演奏的事件，检查键位设置或超音域策略")
             return
 
-        self.player.stop()
-        self.player.sender.stats.__init__()
-        self.player.load(events)
+        self._start_session(events, report, name, mode)
         self.current_tune = None
-        self._play_name = name
 
         self.btn_stop.configure(state=tk.NORMAL)
-        self.log(f"{name}：{report.summary()}，{self.settings.countdown:.0f} 秒后开始")
+        self.log(f"{name}{self._mode_note(mode)}：{report.summary()}，"
+                 f"{self.settings.countdown:.0f} 秒后开始")
         self.player.play(countdown_ms=self.settings.countdown * 1000.0)
         self._start_advanced_ticker(name)
+
+    def _start_session(self, events, report, name: str, mode: str) -> None:
+        """换曲前的公共准备：停掉上一首、选注入器、装事件流、打开悬浮提示。"""
+        self.player.stop()
+        self.overlay.stop()
+        self._use_sender(guide=mode == MODE_GUIDE)
+        self.player.sender.stats.__init__()          # 重置注入计数
+        self.player.load(events)
+        self.play_mode = mode
+        self._play_name = name
+
+        if mode == MODE_GUIDE or self.settings.overlay_in_auto:
+            shown = self.overlay.start(mode, name, report.slots, self.layout, self.player.total,
+                                       wait=self.settings.guide_wait)
+            if not shown and mode == MODE_GUIDE:
+                self.log("悬浮提示窗打不开，这次跟弹只能看主界面的进度")
+
+    def _use_sender(self, guide: bool) -> None:
+        """
+        跟弹换上「什么都不发」的注入器，自动演奏再换回来。
+
+        换回的是"上次自动演奏用的那个"而不是新建一个系统注入器——
+        冒烟测试会把注入器换成只记录的假货，这里不能自作主张把真的换回去。
+        """
+        current = self.player.sender
+        if guide:
+            if not isinstance(current, NullSender):
+                self._input_sender = current
+                self.player.sender = self._null_sender
+        elif isinstance(current, NullSender):
+            self.player.sender = self._input_sender
+
+    @staticmethod
+    def _mode_note(mode: str) -> str:
+        return "（跟弹：看提示自己按，程序不按键）" if mode == MODE_GUIDE else ""
+
+    def _doing(self) -> str:
+        return "跟弹中" if self.play_mode == MODE_GUIDE else "演奏中"
 
     def _start_advanced_ticker(self, name: str) -> None:
         """进阶模式没有曲库页的进度条，用状态栏报进度。"""
@@ -306,21 +361,24 @@ class MainWindow(tk.Tk):
                 return
             if state in (PlayState.PLAYING, PlayState.PAUSED):
                 total = self.player.total or 1.0
-                self.lbl_status.configure(
-                    text=f"{name}　{_mmss(self.player.position)} / {_mmss(total)}")
+                text = f"{name}　{_mmss(self.player.position)} / {_mmss(total)}"
+                judge = self.overlay.judge
+                if self.play_mode == MODE_GUIDE and judge is not None:
+                    text += "　" + judge.status_text()
+                self.lbl_status.configure(text=text)
                 self._countdown_timer = self.after(200, tick)
                 return
             self._countdown_timer = None
 
         tick()
 
-    def play_tune_by_name(self, name: str) -> None:
+    def play_tune_by_name(self, name: str, mode: str = MODE_AUTO) -> None:
         tune = self.library.load(name)
         if tune is None:
             self.log(f"读不到《{name}》，可能文件被删了")
             self.page_library.refresh()
             return
-        self.play_tune(tune)
+        self.play_tune(tune, mode)
 
     def toggle_play(self) -> None:
         """F6：倒计时中取消，演奏中暂停，暂停中继续。"""
@@ -330,10 +388,16 @@ class MainWindow(tk.Tk):
         elif state in (PlayState.PLAYING, PlayState.PAUSED):
             self.player.toggle()
         elif state == PlayState.IDLE and self.current_tune is not None:
-            self.play_tune(self.current_tune)
+            self.play_tune(self.current_tune, self.play_mode)
+
+    def toggle_pause(self) -> None:
+        """播放条上的「暂停 / 继续」按钮。"""
+        if self.player.state in (PlayState.PLAYING, PlayState.PAUSED):
+            self.player.toggle()
 
     def stop(self) -> None:
         self.player.stop()
+        self.overlay.stop()
         self.preview.stop()
         self._stop_countdown_ticker()
         self.current_tune = None
@@ -348,13 +412,19 @@ class MainWindow(tk.Tk):
         total_ms = self.player.total or 1.0
         ratio = max(0.0, min(1.0, ms / total_ms))
         self.page_library.set_progress(ratio, f"{_mmss(ms)} / {_mmss(total_ms)}")
-        self.lbl_status.configure(text=f"演奏中　{_mmss(ms)} / {_mmss(total_ms)}")
+        text = f"{self._doing()}　{_mmss(ms)} / {_mmss(total_ms)}"
+        judge = self.overlay.judge
+        if self.play_mode == MODE_GUIDE and judge is not None:
+            text += "　" + judge.status_text()
+            self.page_library.set_score(judge.status_text())
+        self.lbl_status.configure(text=text)
 
     def _on_state(self, state: str) -> None:
         name = self.current_tune.name if self.current_tune else ""
         if state == PlayState.PLAYING:
-            self.lbl_status.configure(text="演奏中…")
-            self.lbl_nav_status.configure(text="演奏中", fg=Palette["accent"])
+            self.lbl_status.configure(text=f"{self._doing()}…")
+            color = Palette["guide"] if self.play_mode == MODE_GUIDE else Palette["accent"]
+            self.lbl_nav_status.configure(text=self._doing(), fg=color)
             self.btn_stop.configure(state=tk.NORMAL)
             self.page_library.show_playing(name)
         elif state == PlayState.PAUSED:
@@ -374,13 +444,19 @@ class MainWindow(tk.Tk):
     def _on_finish(self) -> None:
         name = self.current_tune.name if self.current_tune else ""
         self._stop_countdown_ticker()
-        self.lbl_status.configure(text="演奏完成")
+        summary = self.overlay.finish()
         self.lbl_nav_status.configure(text="")
         self.btn_stop.configure(state=tk.DISABLED)
         self.page_library.show_done(name)
         self.page_library.set_progress(1.0, "")
-        stats = self.player.sender.stats
-        self.log(f"演奏完成（{stats.summary()}）")
+        if self.play_mode == MODE_GUIDE:
+            summary = summary or "（悬浮窗没开，没有判定数据）"
+            self.lbl_status.configure(text="跟弹完成　" + summary)
+            self.log(f"跟弹完成：{summary}")
+        else:
+            self.lbl_status.configure(text="演奏完成")
+            stats = self.player.sender.stats
+            self.log(f"演奏完成（{stats.summary()}）")
         self.current_tune = None
 
     def _start_countdown_ticker(self) -> None:
@@ -438,11 +514,29 @@ class MainWindow(tk.Tk):
         self.log(f"正在编辑《{name}》")
 
     def apply_settings(self, settings: AppSettings) -> None:
-        """设置页保存后调用：落盘 + 重建键位表。"""
+        """设置页保存后调用：落盘 + 重建键位表 + 刷新悬浮窗外观。"""
         self.settings = settings
         self.settings.save()
         self.layout = self.settings.to_layout()
+        self.overlay.apply_settings(self.settings)
         self.log("设置已生效：" + self.layout.summary())
+
+    def on_overlay_moved(self, x: int, y: int) -> None:
+        """
+        悬浮窗被拖到了新位置：马上存盘。
+
+        设置页手里也有一份正在编辑的设置副本，一起改掉——
+        否则用户之后点「保存设置」，旧坐标会把刚拖好的位置覆盖回去。
+        """
+        for settings in (self.settings, self.page_settings.settings):
+            settings.overlay_x, settings.overlay_y = int(x), int(y)
+        self.settings.save()
+
+    def on_overlay_adjusting(self, on: bool) -> None:
+        """悬浮窗进入 / 退出「调整位置」状态（可能是双击悬浮窗退出的），同步设置页按钮。"""
+        self.page_settings.on_overlay_adjusting(on)
+        if not on:
+            self.overlay.apply_settings(self.settings)
 
     def open_midi_file(self, path: str) -> None:
         """从外部载入 MIDI（启动参数用）。"""
@@ -485,6 +579,7 @@ class MainWindow(tk.Tk):
         self.log("⚠ 一切后果由使用者自行承担，作者不承担任何责任。详见 DISCLAIMER.md")
         self.log("─" * 58)
         self.log(f"{APP_NAME} 已启动。热键：F6 开始/暂停　F8 停止")
+        self.log("想自己吹？曲库里点「跟弹」：游戏画面上会浮出按键提示，你自己按，程序一个键都不按。")
         if not is_admin():
             self.log("提示：当前不是管理员权限。若游戏里完全没反应，请用「以管理员启动.bat」重开。")
         if not self.preview.available:
@@ -494,6 +589,7 @@ class MainWindow(tk.Tk):
     def on_close(self) -> None:
         try:
             self.player.stop()
+            self.overlay.close()
             self.preview.close()
             self.hotkeys.shutdown()
             self.settings.save()

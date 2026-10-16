@@ -20,9 +20,10 @@
     settings   用户配置（键位可自定义，绿色便携）
     smf        MIDI 文件读写（纯标准库，两遍法解析 + 变速时间轴）
     layout     口琴键位模型（音域枚举 / 八度折叠 / 整曲移调寻优）
-    engine     演奏时序引擎（帧对齐余量 / 单声部槽位排布 / 修饰键差分）
+    engine     演奏时序引擎（帧对齐余量 / 单声部槽位排布 / 修饰键差分 / 等待闸门）
+    practice   跟弹判定（按对没有、准不准、难度估计；纯逻辑）
     sender     SendInput 扫描码级键鼠注入
-    hotkeys    GetAsyncKeyState 全局热键
+    hotkeys    GetAsyncKeyState 全局热键 + 跟弹时读玩家按键
     preview    MCI 本地试听
     jianpu     简谱文本解析
     exporter   CSV / Lua / 键位表导出
@@ -79,6 +80,8 @@ from .layout import (
 from .engine import (
     Player,
     Event,
+    Slot,
+    NullSender,
     Timing,
     PlayState,
     CompileReport,
@@ -86,8 +89,9 @@ from .engine import (
     compile_notes,
     FRAME_MS,
 )
+from .practice import Judge, Verdict, difficulty
 from .sender import Sender, SCANCODES
-from .hotkeys import GlobalHotkeys, VK
+from .hotkeys import GlobalHotkeys, KeyWatcher, VK
 from .preview import Preview
 from .jianpu import parse_jianpu, JianpuScore, JIANPU_TEMPLATE
 from .exporter import (
@@ -98,7 +102,7 @@ from .exporter import (
     export_lua,
 )
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 
 __all__ = [
     # 曲子与曲库
@@ -113,10 +117,12 @@ __all__ = [
     "Layout", "Combo", "MouseMod", "FoldMode", "DEFAULT_LAYOUT",
     "BASE_KEYS", "SCALE", "MOD_FEATURE_LABELS",
     # 演奏
-    "Player", "Event", "Timing", "PlayState", "CompileReport",
+    "Player", "Event", "Slot", "NullSender", "Timing", "PlayState", "CompileReport",
     "TIMING_PRESETS", "compile_notes", "FRAME_MS",
+    # 跟弹
+    "Judge", "Verdict", "difficulty",
     # 底层
-    "Sender", "SCANCODES", "GlobalHotkeys", "VK", "Preview",
+    "Sender", "SCANCODES", "GlobalHotkeys", "KeyWatcher", "VK", "Preview",
     # 简谱与导出
     "parse_jianpu", "JianpuScore", "JIANPU_TEMPLATE",
     "export_csv", "export_json", "export_keytable_csv", "export_keytable_md", "export_lua",

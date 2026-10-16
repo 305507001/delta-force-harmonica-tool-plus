@@ -13,21 +13,26 @@
    时长，不压缩这些保命余量。
 
 2. 单声部槽位排布
-   口琴一次只能发一个音。遇到与前一个音时间重叠的音符时，不能靠"缩短前一个音"
-   来腾地方（会切出零时长的按键，游戏直接吞掉），而是把这个音**顺延到前一个音
-   之后**，形成一个个互不重叠的"槽位"。
+   口琴一次只能发一个音。遇到和前一个音重叠、或者首尾紧贴留不出 gap 的音符时，
+   优先把前一个音**缩短**到刚好空出 gap——但绝不短于 min_hold，所以不会切出
+   零时长的按键；实在缩不出来（比如和弦里几个音同时起），才把这个音**顺延**
+   到前一个音之后。排出来的"槽位"互不重叠，也不会一个音一个音地越拖越晚。
 
 3. 修饰键差分切换
    同一段旋律往往连续多个音用同一套修饰键，此时完全不用松手切换。
    引擎只在修饰键组合真正变化时才发鼠标事件，既省注入量又减少抖动。
+   代价是：暂停 / 定位会先松开全部按键，继续之前播放器必须按事件流把
+   "此刻本该按着"的修饰键重新按回去，否则后面的音会整段吹错八度。
 """
 
 from __future__ import annotations
 
 import bisect
+import ctypes
+import sys
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from .layout import Combo, FoldMode, Layout, MouseMod
@@ -37,10 +42,12 @@ __all__ = [
     "Timing",
     "TIMING_PRESETS",
     "Event",
+    "Slot",
     "CompileReport",
     "compile_notes",
     "Player",
     "PlayState",
+    "NullSender",
 ]
 
 #: 一帧的物理时长（60FPS）
@@ -122,6 +129,26 @@ class Event:
         return self.kind in (EV_MOUSE_DOWN, EV_MOUSE_UP)
 
 
+@dataclass(frozen=True)
+class Slot:
+    """
+    排布好的一个音：什么时候按、按多久、怎么按。
+
+    事件流是给注入器看的，槽位是给人看的——跟弹悬浮窗直接读它，
+    保证"屏幕上提示的时间"和"自动演奏真正按下的时间"是同一套。
+    """
+
+    start: float      # 音键按下的时刻（毫秒，已含倍速）
+    hold: float       # 按住多久（毫秒）
+    combo: Combo      # 按键方案
+    pitch: int        # 原谱音高（未移调、未折叠），界面高亮用
+    played: int       # 实际吹出来的音高（移调 + 折叠之后）
+
+    @property
+    def end(self) -> float:
+        return self.start + self.hold
+
+
 @dataclass
 class CompileReport:
     """编译结果统计，直接显示给用户。"""
@@ -134,6 +161,7 @@ class CompileReport:
     raw_length_ms: float = 0.0     # 原始时长
     play_length_ms: float = 0.0    # 排布后时长
     max_polyphony: int = 1
+    slots: List[Slot] = field(default_factory=list)   # 排布结果，跟弹提示用
 
     def summary(self) -> str:
         bits = [f"共 {self.total_notes} 个音"]
@@ -170,7 +198,7 @@ def compile_notes(
     :param speed:      播放倍速，只压缩音符时长，不压缩时序余量
     :param transpose:  移调半音数
     :param fold:       超音域处理策略，见 :class:`kouqin.layout.FoldMode`
-    :returns: ``(事件列表, 统计报告)``
+    :returns: ``(事件列表, 统计报告)``，排布好的槽位在 ``报告.slots`` 里
     """
     report = CompileReport()
     report.total_notes = len(notes)
@@ -181,41 +209,37 @@ def compile_notes(
     ordered = sorted(notes, key=lambda n: (n.start, n.pitch))
 
     # ---- 第一步：解析出每个音的按键方案，顺手统计音域情况 ----
-    planned: List[Tuple[float, float, Combo, int]] = []
+    planned: List[Tuple[float, float, Combo, int, int]] = []
     for note in ordered:
         pitch = note.pitch + transpose
+        played = pitch
         combo = layout.lookup(pitch)
         if combo is None:
             if fold == FoldMode.SKIP:
                 report.skipped += 1
                 continue
-            combo = layout.lookup(layout.fold_pitch(pitch))
+            played = layout.fold_pitch(pitch)
+            combo = layout.lookup(played)
             report.folded += 1
         if combo is None:
             report.skipped += 1
             continue
         report.played += 1
-        planned.append((note.start / speed, note.duration / speed, combo, note.pitch))
+        planned.append((note.start / speed, note.duration / speed, combo, note.pitch, played))
 
     report.max_polyphony = _max_polyphony(ordered)
     report.raw_length_ms = max((n.end for n in ordered), default=0.0)
 
     # ---- 第二步：单声部槽位排布 ----
-    slots: List[Tuple[float, float, Combo, int]] = []
-    cursor = 0.0
-    for start, duration, combo, pitch in planned:
-        real_start = max(start, cursor)
-        hold = max(duration, timing.min_hold)
-        slots.append((real_start, hold, combo, pitch))
-        # 留出 gap，确保按键被完整释放，避免被游戏合并成一次长按
-        cursor = real_start + hold + timing.gap
+    slots = _arrange_slots(planned, timing)
 
     # ---- 第三步：生成事件（修饰键差分切换） ----
     events: List[Event] = []
     seq = 0
     current_mods: List[str] = []
 
-    for start, hold, combo, pitch in slots:
+    for slot in slots:
+        start, hold, combo, pitch = slot.start, slot.hold, slot.combo, slot.pitch
         need = list(combo.mods)
 
         to_release = [m for m in current_mods if m not in need]
@@ -241,7 +265,7 @@ def compile_notes(
         seq += 1
 
     # ---- 第四步：收尾，把所有修饰键松开 ----
-    tail_at = (slots[-1][0] + slots[-1][1] + timing.mod_tail) if slots else 0.0
+    tail_at = (slots[-1].end + timing.mod_tail) if slots else 0.0
     for mod in list(current_mods):
         events.append(Event(tail_at, EV_MOUSE_UP, mod, seq, pitch=-1))
         seq += 1
@@ -250,7 +274,40 @@ def compile_notes(
     events.sort()
     report.event_count = len(events)
     report.play_length_ms = max((e.t for e in events), default=0.0)
+    report.slots = slots
     return events, report
+
+
+def _arrange_slots(planned: Sequence[Tuple[float, float, Combo, int, int]],
+                   timing: Timing) -> List[Slot]:
+    """
+    单声部槽位排布（思路见模块文档第 2 条）。
+
+    早先的写法是"前一个音照原样按满，后一个音一律排到它后面再加 gap"。
+    首尾紧贴的连奏（格子谱里几乎全是这样）因此每个音都比谱面晚一个 gap，
+    越拖越晚，直到遇上休止符才一下子追回来——听起来就是乐句越吹越慢、然后抢拍。
+    """
+    slots: List[Slot] = []
+    for start, duration, combo, pitch, played in planned:
+        hold = max(duration, timing.min_hold)
+        if slots:
+            prev = slots[-1]
+            if start < prev.end + timing.gap:
+                # 前一个音最晚只能按到 start - gap，而且不能短于 min_hold
+                room = start - timing.gap - prev.start
+                if room >= timing.min_hold:
+                    slots[-1] = replace(prev, hold=room)
+                else:
+                    slots[-1] = replace(prev, hold=timing.min_hold)
+                    start = prev.start + timing.min_hold + timing.gap
+        slots.append(Slot(start, hold, combo, pitch, played))
+
+    # 第一个音就要按修饰键时，开头没有提前量可用（切换时刻会被截到 0，
+    # 修饰键和音键同一毫秒按下）。整体往后挪一点，把这份余量补出来。
+    if slots and slots[0].combo.mods and slots[0].start < timing.mod_lead:
+        offset = timing.mod_lead - slots[0].start
+        slots = [replace(s, start=s.start + offset) for s in slots]
+    return slots
 
 
 def _max_polyphony(notes: Sequence) -> int:
@@ -272,6 +329,23 @@ def _max_polyphony(notes: Sequence) -> int:
 # --------------------------------------------------------------------------- #
 
 
+def _fine_timer(on: bool) -> None:
+    """
+    Windows：演奏期间把本进程的系统定时器精度调到 1ms，结束后还原。
+
+    默认精度约 15.6ms——Python 3.11 之前的 time.sleep、界面定时器（悬浮窗刷新）
+    都按这个粒度醒来，事件会晚将近一帧，悬浮窗也只有 30 帧左右。
+    音乐软件、游戏都这么做；Windows 10 2004 起这个设置只影响本进程。
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        winmm = ctypes.WinDLL("winmm")
+        (winmm.timeBeginPeriod if on else winmm.timeEndPeriod)(1)
+    except (OSError, AttributeError):
+        pass
+
+
 class PlayState:
     """播放状态机取值。"""
 
@@ -282,12 +356,47 @@ class PlayState:
     DONE = "done"
 
 
+class NullSender:
+    """
+    什么都不发的注入器。
+
+    跟弹模式用它驱动播放器：时间照走、进度照报，但一个按键都不往系统里发——
+    键由玩家自己按，程序只负责看和提示。
+    """
+
+    class _Stats:
+        def summary(self) -> str:
+            return "跟弹模式，未发送任何按键"
+
+    def __init__(self) -> None:
+        self.stats = NullSender._Stats()
+
+    def key_down(self, key: str) -> bool:
+        return True
+
+    def key_up(self, key: str) -> bool:
+        return True
+
+    def mouse_down(self, button: str) -> bool:
+        return True
+
+    def mouse_up(self, button: str) -> bool:
+        return True
+
+    def release_all(self) -> None:
+        pass
+
+
 class Player:
     """
     事件流播放器。
 
     在后台线程按时间戳把事件喂给 :class:`kouqin.sender.Sender`，
     对外暴露 播放 / 暂停 / 继续 / 停止 / 定位 以及进度回调。
+
+    线程约定：真正发按键的只有播放线程（暂停 / 定位 / 停止时的"全部松开"除外）；
+    界面线程改状态时和播放线程用同一把锁串行，所以不会出现"刚松开又被按下"的抢跑。
+    回调一律在锁外调用——界面回调里会碰 Tk，持锁去等主线程会死锁。
     """
 
     def __init__(self, sender: Optional[Sender] = None) -> None:
@@ -304,10 +413,14 @@ class Player:
         self._pause_stamp = 0.0
         self._pending_ms = 0.0   # 下次播放的起点（seek 会改它）
         self._state = PlayState.IDLE
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._resume = threading.Event()
         self._resume.set()
         self._abort = threading.Event()
+        self._epoch = 0                    # 每次定位 +1：播放线程据此知道"刚才在等的那个事件作废了"
+        self._resync = False               # 下一次发事件前，先把修饰键按回编排要求的状态
+        self._mods_down: List[str] = []    # 本播放器按下、还没松开的鼠标修饰键
+        self._gate_ms: Optional[float] = None   # 等待闸门，见 set_gate()
 
         # 回调
         self.on_progress: Optional[Callable[[float, int, int], None]] = None
@@ -331,9 +444,10 @@ class Player:
         """当前演奏位置（毫秒）。"""
         if self._state == PlayState.PAUSED:
             return self._paused_at
-        if self._state in (PlayState.PLAYING, PlayState.COUNTDOWN) and self._origin:
-            return max(0.0, (time.perf_counter() - self._origin - self._shift) * 1000.0)
-        # 未开始演奏时，返回上一次定位的位置（默认 0）
+        if self._state == PlayState.PLAYING and self._origin:
+            return max(0.0, self._clock_ms())
+        # 未开始 / 倒计时中：返回即将开始的位置（定位过就是定位点，否则是 0）。
+        # （早先倒计时期间会拿上一次演奏留下的时间基准来算，第二首起位置是乱的。）
         return self._pending_ms
 
     @property
@@ -347,6 +461,18 @@ class Player:
             return max(0.0, self._countdown_deadline - time.perf_counter())
         return 0.0
 
+    @property
+    def gate(self) -> Optional[float]:
+        return self._gate_ms
+
+    @property
+    def waiting(self) -> bool:
+        """是否正停在等待闸门上（跟弹的「等我按对再继续」）。"""
+        gate = self._gate_ms
+        if gate is None or self._state != PlayState.PLAYING or not self._origin:
+            return False
+        return self._raw_ms() >= gate
+
     def _set_state(self, state: str) -> None:
         self._state = state
         if self.on_state:
@@ -354,6 +480,51 @@ class Player:
                 self.on_state(state)
             except Exception:
                 pass
+
+    # ------------------------------------------------------------------ #
+    # 演奏时钟
+    # ------------------------------------------------------------------ #
+
+    def _raw_ms(self) -> float:
+        return (time.perf_counter() - self._origin - self._shift) * 1000.0
+
+    def _clock_ms(self) -> float:
+        """演奏时钟（毫秒）。设了闸门时，时钟走到闸门处就停住。"""
+        raw = self._raw_ms()
+        gate = self._gate_ms
+        if gate is not None and raw > gate:
+            return gate
+        return raw
+
+    def _settle_gate(self) -> None:
+        """
+        时钟已被闸门拦住时，把时间基准挪到"恰好停在闸门处"。
+
+        拦住期间真实时间还在流逝；不做这一步，闸门一撤时钟就会猛地跳到
+        "本来该走到的位置"，等待期间的音会一口气全冒出来。
+        """
+        gate = self._gate_ms
+        if gate is None or self._state != PlayState.PLAYING or not self._origin:
+            return
+        if self._raw_ms() > gate:
+            self._shift = time.perf_counter() - self._origin - gate / 1000.0
+
+    def set_gate(self, ms: Optional[float]) -> None:
+        """
+        设置等待闸门：演奏时钟走到 ``ms`` 就原地停住，直到闸门被挪走（传 None 撤掉）。
+
+        跟弹的「等我按对再继续」就靠它。这不是暂停：状态仍是 PLAYING，
+        也不会松开任何按键。闸门只会让时钟停下，不会让它倒退。
+        """
+        with self._lock:
+            self._settle_gate()
+            if ms is None:
+                self._gate_ms = None
+                return
+            ms = max(0.0, float(ms))
+            if self._state == PlayState.PLAYING and self._origin:
+                ms = max(ms, self._clock_ms())
+            self._gate_ms = ms
 
     # ------------------------------------------------------------------ #
     # 控制
@@ -380,29 +551,35 @@ class Player:
         self._shift = 0.0
         # 从上次定位的位置接着放（没定位过就是 0）
         self._index = bisect.bisect_left(self._times, self._pending_ms)
+        self._resync = True        # 从中途开始时，先把这个位置该按着的修饰键按上
         self._countdown_ms = max(0.0, countdown_ms)
         self._thread = threading.Thread(target=self._run, name="kouqin-player", daemon=True)
         self._thread.start()
 
     def pause(self) -> None:
-        if self._state != PlayState.PLAYING:
-            return
-        # 基准时间只在这里记录一次。
-        # （早先的写法是在播放循环里不断刷新它，导致恢复时算出的暂停时长几乎为零，
-        #   表现出来就是"暂停了但曲子一点没等"，这里已经修正。）
-        self._paused_at = self.position
-        self._pause_stamp = time.perf_counter()
-        self._resume.clear()
-        self.sender.release_all()      # 暂停时立刻松手，避免长按卡键
-        self._set_state(PlayState.PAUSED)
+        with self._lock:
+            if self._state != PlayState.PLAYING:
+                return
+            # 基准时间只在这里记录一次。
+            # （早先的写法是在播放循环里不断刷新它，导致恢复时算出的暂停时长几乎为零，
+            #   表现出来就是"暂停了但曲子一点没等"，这里已经修正。）
+            self._settle_gate()
+            self._paused_at = self.position
+            self._pause_stamp = time.perf_counter()
+            self._resume.clear()
+            self._release_held()           # 暂停时立刻松手，避免长按卡键
+            self._set_state(PlayState.PAUSED)
 
     def resume(self) -> None:
-        if self._state != PlayState.PAUSED:
-            return
-        # 补偿暂停期间流逝的时间
-        self._shift += time.perf_counter() - self._pause_stamp
-        self._resume.set()
-        self._set_state(PlayState.PLAYING)
+        with self._lock:
+            if self._state != PlayState.PAUSED:
+                return
+            # 补偿暂停期间流逝的时间
+            self._shift += time.perf_counter() - self._pause_stamp
+            # 暂停时修饰键全松开了，继续之前要按回去（由播放线程来按，见 _restore_mods）
+            self._resync = True
+            self._resume.set()
+            self._set_state(PlayState.PLAYING)
 
     def toggle(self) -> None:
         """空闲则开始，播放则暂停，暂停则继续。绑定到单个热键时很好用。"""
@@ -418,10 +595,13 @@ class Player:
         thread = self._thread
         if thread and thread.is_alive() and thread is not threading.current_thread():
             thread.join(timeout=1.0)
-        self.sender.release_all()
-        self._index = 0
-        self._pending_ms = 0.0
-        self._set_state(PlayState.IDLE)
+        with self._lock:
+            self._release_held()
+            self._index = 0
+            self._pending_ms = 0.0
+            self._gate_ms = None
+            self._epoch += 1
+            self._set_state(PlayState.IDLE)
 
     def seek(self, ms: float) -> None:
         """
@@ -429,20 +609,27 @@ class Player:
 
         三种情况都要正确处理：
             播放中  重建时间基准，让后续事件按新位置对齐
-            暂停中  只改暂停位置，恢复时从那里继续
+            暂停中  改暂停位置，并把时间基准对齐到"暂停那一刻就在新位置"
+                    （早先只改了暂停位置，继续演奏时时钟又回到了旧位置）
             未播放  记成"下次从这儿开始"
         """
         if not self._events:
             return
-        ms = max(0.0, min(ms, self.total))
-        self._index = bisect.bisect_left(self._times, ms)
-        self.sender.release_all()      # 位置跳变前先松手，避免残留修饰键
-        self._shift = 0.0
-        self._pending_ms = ms
-        if self._state == PlayState.PLAYING:
-            self._origin = time.perf_counter() - ms / 1000.0
-        elif self._state == PlayState.PAUSED:
-            self._paused_at = ms
+        with self._lock:
+            ms = max(0.0, min(ms, self.total))
+            self._index = bisect.bisect_left(self._times, ms)
+            self._epoch += 1               # 播放线程正在等的那个事件作废
+            self._release_held()           # 位置跳变前先松手，避免残留修饰键
+            self._resync = True            # 继续前按回新位置该有的修饰键
+            self._gate_ms = None
+            self._shift = 0.0
+            self._pending_ms = ms
+            if self._state == PlayState.PLAYING:
+                self._origin = time.perf_counter() - ms / 1000.0
+            elif self._state == PlayState.PAUSED:
+                # resume() 会把暂停时长加进 _shift，这里让"暂停那一刻"正好对应 ms
+                self._origin = self._pause_stamp - ms / 1000.0
+                self._paused_at = ms
 
     def seek_relative(self, delta_ms: float) -> None:
         if self._state in (PlayState.PLAYING, PlayState.PAUSED):
@@ -453,6 +640,7 @@ class Player:
     # ------------------------------------------------------------------ #
 
     def _run(self) -> None:
+        _fine_timer(True)
         try:
             # 倒计时阶段：让人有时间切回游戏
             if self._countdown_ms > 0:
@@ -466,48 +654,61 @@ class Player:
                     time.sleep(0.02)
                 self._countdown_deadline = 0.0
 
+            with self._lock:
+                # 时间基准要把"定位偏移"算进去，否则从中间开始时事件会提前弹出。
+                # 先定基准再切状态：别人一看到 PLAYING 就会来读 position。
+                self._origin = time.perf_counter() - self._pending_ms / 1000.0
+                self._shift = 0.0
+                self._pause_stamp = self._origin
             self._set_state(PlayState.PLAYING)
-            # 时间基准要把"定位偏移"算进去，否则从中间开始时事件会提前弹出
-            self._origin = time.perf_counter() - self._pending_ms / 1000.0
-            self._shift = 0.0
-            self._pause_stamp = self._origin
             last_report = 0.0
 
-            while self._index < len(self._events):
-                if self._abort.is_set():
-                    break
-                if not self._resume.is_set():
+            while True:
+                with self._lock:
+                    if self._abort.is_set() or self._index >= len(self._events):
+                        break
+                    paused = not self._resume.is_set()
+                    if not paused:
+                        if self._resync:
+                            self._resync = False
+                            self._restore_mods()
+                        epoch = self._epoch
+                        event = self._events[self._index]
+                    else:
+                        # 暂停中：顺手再松一次手，防止 pause() 松键的同一瞬间本线程又按下了键
+                        self._release_held()
+                if paused:
                     # 这里只是等着，不要去动 _pause_stamp（那是 pause() 的职责）
                     self._resume.wait(0.05)
                     continue
 
-                event = self._events[self._index]
-                target = event.t / 1000.0
                 # 等到该事件的时间点
+                target = event.t
                 while True:
-                    if self._abort.is_set():
+                    if self._abort.is_set() or not self._resume.is_set() or self._epoch != epoch:
                         break
-                    if not self._resume.is_set():
-                        break
-                    now = time.perf_counter() - self._origin - self._shift
-                    remain = target - now
+                    remain = (target - self._clock_ms()) / 1000.0
                     if remain <= 0:
                         break
                     if remain > 0.002:
                         time.sleep(min(remain - 0.001, 0.02))
+                    elif self._gate_ms is not None and self._raw_ms() > self._gate_ms:
+                        time.sleep(0.005)      # 被闸门拦住时别空转
                     # 剩余不足 2ms，直接忙等，保证精度
-                if self._abort.is_set() or not self._resume.is_set():
-                    continue
 
-                self._emit(event)
-                self._index += 1
+                with self._lock:
+                    if self._abort.is_set() or not self._resume.is_set() or self._epoch != epoch:
+                        continue
+                    self._emit(event)
+                    self._index += 1
+                    index, count = self._index, len(self._events)
 
                 # 进度回调做节流，别把 UI 线程刷爆
-                now_ms = (time.perf_counter() - self._origin - self._shift) * 1000.0
-                if self.on_progress and (now_ms - last_report > 40 or self._index >= len(self._events)):
+                now_ms = self._clock_ms()
+                if self.on_progress and (now_ms - last_report > 40 or index >= count):
                     last_report = now_ms
                     try:
-                        self.on_progress(now_ms, self._index, len(self._events))
+                        self.on_progress(now_ms, index, count)
                     except Exception:
                         pass
 
@@ -516,7 +717,9 @@ class Player:
             else:
                 self._set_state(PlayState.DONE)
         finally:
-            self.sender.release_all()
+            with self._lock:
+                self._release_held()
+            _fine_timer(False)
             if self._state == PlayState.DONE and self.on_finish:
                 try:
                     self.on_finish()
@@ -531,5 +734,46 @@ class Player:
             self.sender.key_up(event.arg)
         elif event.kind == EV_MOUSE_DOWN:
             self.sender.mouse_down(event.arg)
+            if event.arg not in self._mods_down:
+                self._mods_down.append(event.arg)
         elif event.kind == EV_MOUSE_UP:
             self.sender.mouse_up(event.arg)
+            if event.arg in self._mods_down:
+                self._mods_down.remove(event.arg)
+
+    def _release_held(self) -> None:
+        self.sender.release_all()
+        self._mods_down.clear()
+
+    def _mods_at(self, index: int) -> List[str]:
+        """事件流走到 index 时，按编排应该按住哪些鼠标修饰键。"""
+        held: List[str] = []
+        for event in self._events[:index]:
+            if event.kind == EV_MOUSE_DOWN:
+                if event.arg not in held:
+                    held.append(event.arg)
+            elif event.kind == EV_MOUSE_UP and event.arg in held:
+                held.remove(event.arg)
+        return held
+
+    def _restore_mods(self) -> None:
+        """
+        把鼠标修饰键按回「事件流走到当前位置时本该按着」的状态。
+
+        暂停 / 定位都会先松开全部按键，可编译时修饰键是差分生成的——只在组合
+        变化时才有按下事件。不补这一步，继续演奏后同一组合的音会全部少按一个
+        鼠标键（整段错八度），一直错到组合变化为止。
+        """
+        wanted = self._mods_at(self._index)
+        for mod in [m for m in self._mods_down if m not in wanted]:
+            self.sender.mouse_up(mod)
+            self._mods_down.remove(mod)
+        pressed = False
+        for mod in wanted:
+            if mod not in self._mods_down:
+                self.sender.mouse_down(mod)
+                self._mods_down.append(mod)
+                pressed = True
+        if pressed:
+            # 刚按下的修饰键要留一帧给游戏读到，后面的音整体顺延一帧
+            self._shift += FRAME_MS / 1000.0

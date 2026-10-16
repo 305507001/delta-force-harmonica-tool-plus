@@ -34,3 +34,6 @@ desktop.ini
 _chk*.js
 _t.js
 *.tmp
+
+# 打包给 Windows 用的压缩包
+*.zip

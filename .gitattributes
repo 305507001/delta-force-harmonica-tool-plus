@@ -1,0 +1,3 @@
+# Windows 批处理：cmd.exe 需要 CRLF 换行（文件本身是 GBK 编码，由 tools/make_launchers.py 生成）
+*.bat text eol=crlf
+*.iss text eol=crlf

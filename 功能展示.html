@@ -8,7 +8,7 @@
   :root{
     --bg:#11141b; --panel:#181d26; --panel2:#1e242f; --border:#2a3240;
     --text:#d7dee9; --dim:#7f8b9c; --accent:#35d0a5; --accent2:#1f8a6c;
-    --warn:#e0a04a; --danger:#e2606a; --entry:#0e1118; --sel:#2b6cff;
+    --warn:#e0a04a; --danger:#e2606a; --entry:#0e1118; --sel:#2b6cff; --guide-c:#2b9fd8;
     --oct-low-bg:#1d3a4d; --oct-low-fg:#79c7ef;
     --oct-mid-bg:#1c4034; --oct-mid-fg:#5fe0ab;
     --oct-high-bg:#4a3a1c; --oct-high-fg:#f0b95c;
@@ -78,6 +78,23 @@
   .btn:hover{filter:brightness(1.25)}
   .btn.pri{background:var(--accent2);border-color:var(--accent);color:#eafff8}
   .btn.dan{background:#4a2228;border-color:var(--danger);color:#ffd9dd}
+  .btn.gd{background:#173247;border-color:#2b9fd8;color:#d6efff}
+
+  /* ---------- 跟弹演示 ---------- */
+  .stage{position:relative;border-radius:12px;overflow:hidden;border:1px solid var(--border);
+         background:linear-gradient(160deg,#3c4a35 0%,#6d7b55 38%,#8a9378 62%,#2f3c45 100%);
+         padding:30px 16px 24px;user-select:none;-webkit-user-select:none;cursor:crosshair;outline:none}
+  .stage:focus-visible{box-shadow:0 0 0 2px var(--guide-c)}
+  .stage .hud{position:absolute;left:14px;top:9px;font-size:11.5px;color:rgba(255,255,255,.78)}
+  .stage .hud b{color:#fff}
+  .stage canvas{display:block;margin:0 auto;width:100%;max-width:680px;height:auto}
+  .gctl{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;margin-top:14px}
+  .gctl select{background:var(--entry);color:var(--text);border:1px solid var(--border);border-radius:6px;
+               padding:5px 8px;font-family:inherit;font-size:12.5px}
+  .gctl label{font-size:12.5px;color:var(--dim);display:flex;align-items:center;gap:6px}
+  .gctl .msg{font-size:12.5px;color:var(--dim);flex-basis:100%}
+  .legend{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:12px;font-size:12px;color:var(--dim)}
+  .legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-2px}
   .btn.gh{background:transparent;color:var(--dim)}
   .btn.sm{padding:3px 9px;font-size:11.5px}
   .btn[disabled]{opacity:.42;cursor:not-allowed}
@@ -232,12 +249,13 @@
 
 <header class="wrap">
   <h1>口琴<span>工坊</span></h1>
-  <p class="tag">三角洲行动 · 口琴自动演奏工具</p>
+  <p class="tag">三角洲行动 · 口琴自动演奏 / 跟弹提示工具（个人修改版）</p>
   <div class="chips">
     <span class="chip"><b>零依赖</b> · 只用 Python 标准库</span>
     <span class="chip"><b>内置 8 首</b> 曲子，点一下就能吹</span>
     <span class="chip"><b>键位可改</b> · 默认对齐游戏</span>
     <span class="chip"><b>38 个音高</b> 全覆盖</span>
+    <span class="chip"><b>跟弹模式</b> · 看提示自己按，程序不按键</span>
   </div>
   <div class="alert">
     <div class="h">本项目仅供个人学习、技术研究与娱乐使用<br>
@@ -284,7 +302,7 @@
 
     <div class="win">
       <div class="win-title"><span class="dot a"></span><span class="dot"></span><span class="dot"></span>
-        口琴工坊 — 三角洲行动 · 口琴自动演奏</div>
+        口琴工坊 — 三角洲行动 · 口琴自动演奏 / 跟弹提示</div>
       <div class="navbar">
         <span class="brand">口琴工坊</span>
         <span class="tab on">曲库</span>
@@ -310,10 +328,42 @@
       <div id="tuneList"></div>
 
       <div class="playbar">
-        <span class="now" id="nowPlaying">选一首曲子，点「演奏」就开始</span>
+        <span class="now" id="nowPlaying">选一首曲子：「跟弹」自己按，「演奏」程序替你按</span>
         <span class="pbar"><i id="pfill"></i></span>
         <button class="btn dan" id="btnStop" disabled>■ 停止</button>
       </div>
+    </div>
+  </section>
+
+  <!-- ============ 跟弹模式 ============ -->
+  <section id="guideDemo">
+    <h2><span class="bar"></span>跟弹模式 · 看着提示自己吹</h2>
+    <p class="sub">程序不按任何键，只在游戏画面上浮出一个置顶的提示小窗：音符从右往左走，走到竖线时按下。
+      下面就能直接试 —— 键盘按 <span class="kbd">Z</span> <span class="kbd">X</span> <span class="kbd">C</span> … <span class="kbd">,</span>，
+      在画面上按住鼠标左 / 右 / 中键变调（和游戏里一样）。</p>
+
+    <div class="stage" id="gStage" tabindex="0">
+      <div class="hud">模拟的游戏画面 · 悬浮窗锁定后鼠标点击会直接穿透到游戏</div>
+      <canvas id="gCanvas" width="680" height="188"></canvas>
+    </div>
+
+    <div class="gctl">
+      <select id="gTune"></select>
+      <select id="gSpeed">
+        <option value="0.6">0.6× 慢速</option><option value="0.75">0.75×</option>
+        <option value="1" selected>1.0× 原速</option>
+      </select>
+      <label><input type="checkbox" id="gWait"> 等我按对再继续</label>
+      <button class="btn gd" id="gStart">▶ 开始跟弹</button>
+      <button class="btn gh" id="gAuto">看自动演奏的提示</button>
+      <button class="btn dan" id="gStop" disabled>■ 停止</button>
+      <span class="msg" id="gMsg">提示：游戏要设成「无边框窗口化」或「窗口化」，全屏独占下任何窗口都盖不到游戏上面。</span>
+    </div>
+    <div class="legend">
+      <span><i style="background:#5fe0ab"></i>绿：不用按鼠标</span>
+      <span><i style="background:#79c7ef"></i>蓝：按住降八度的鼠标键（默认左键）</span>
+      <span><i style="background:#f0b95c"></i>橙：按住升八度的鼠标键（默认右键）</span>
+      <span><i style="background:#c98cf0"></i>带 # ：再加按升半音的鼠标键（默认中键）</span>
     </div>
   </section>
 
@@ -731,9 +781,10 @@ TUNES.forEach(t=>{
       <div class="meta">${t.bars} 小节 · ${t.notes.length} 个音 · 约 ${t.sec} 秒 · ${t.p} 拍/分</div>
     </div>
     <div class="acts">
-      <button class="btn pri" data-act="play">演奏</button>
-      <button class="btn gh" data-act="edit">编辑</button>
       <button class="btn gh" data-act="del">删除</button>
+      <button class="btn gh" data-act="edit">编辑</button>
+      <button class="btn gd" data-act="guide">跟弹</button>
+      <button class="btn pri" data-act="play">演奏</button>
     </div>`;
   tuneList.appendChild(row);
 });
@@ -742,6 +793,7 @@ tuneList.addEventListener('click',e=>{
   const btn=e.target.closest('button'); if(!btn)return;
   const row=btn.closest('.tune'); const name=row.dataset.name;
   if(btn.dataset.act==='play')startPlay(name,row);
+  if(btn.dataset.act==='guide')window.startGuideDemo(name,true);
   if(btn.dataset.act==='edit')flash(row,'→ 跳到「谱曲」页编辑');
   if(btn.dataset.act==='del')flash(row,'（演示页不真的删除）');
 });
@@ -1032,6 +1084,286 @@ function renderKeyTable(){
 renderRoll();
 renderPicker();
 renderKeyTable();
+
+/* ================= 跟弹模式演示 ================= */
+/* 画面布局照搬 gui/overlay.py，判定规则照搬 kouqin/practice.py（完美 ±80ms，判定窗口 ±160ms）。 */
+(function(){
+  const cv=document.getElementById('gCanvas');
+  if(!cv)return;
+  const stage=document.getElementById('gStage');
+  const msgEl=document.getElementById('gMsg');
+  const G={w:680,h:188,pad:12,headerY:20,laneTop:36,laneBottom:124,laneMid:84,laneRight:668,
+           zoneRight:150,lineX:180,head:46,tail:10,mouse:[24,48,58,112],textX:68,
+           capW:44,capH:40,capGap:8,kbTop:134};
+  G.kbX0=(G.w-(8*G.capW+7*G.capGap))/2;
+  const C={panel:'#12161d',lane:'#191e28',past:'#232a35',cap:'#1a2029',border:'#2a3240',text:'#d7dee9',
+           dim:'#7f8b9c',dark:'#0b0e13',accent:'#35d0a5',accentDark:'#1f8a6c',guide:'#2b9fd8',
+           guideDark:'#173247',warn:'#e0a04a',danger:'#e2606a'};
+  const GROUP={mid:['#1c4034','#5fe0ab'],down:['#1d3a4d','#79c7ef'],up:['#4a3a1c','#f0b95c'],sharp:['#3d2447','#c98cf0']};
+  const PERFECT=80, GOOD=160, LEAD_IN=2400;
+  const UI='"Microsoft YaHei UI","PingFang SC",system-ui,sans-serif', KEYF='"Segoe UI",system-ui,sans-serif';
+
+  const dpr=Math.max(1,Math.min(3,window.devicePixelRatio||1));
+  cv.width=G.w*dpr; cv.height=G.h*dpr;
+  const c=cv.getContext('2d'); c.scale(dpr,dpr);
+
+  /* ---------- 小工具 ---------- */
+  function blend(a,b,t){t=Math.max(0,Math.min(1,t));
+    const p=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16));const x=p(a),y=p(b);
+    return '#'+x.map((v,i)=>Math.round(v+(y[i]-v)*t).toString(16).padStart(2,'0')).join('');}
+  function path(x1,y1,x2,y2,tl,tr,br,bl){c.beginPath();c.moveTo(x1+tl,y1);c.lineTo(x2-tr,y1);
+    c.arcTo(x2,y1,x2,y1+tr,tr);c.lineTo(x2,y2-br);c.arcTo(x2,y2,x2-br,y2,br);c.lineTo(x1+bl,y2);
+    c.arcTo(x1,y2,x1,y2-bl,bl);c.lineTo(x1,y1+tl);c.arcTo(x1,y1,x1+tl,y1,tl);c.closePath();}
+  function rr(x1,y1,x2,y2,r,fill,stroke,lw){r=Math.max(0,Math.min(r,(x2-x1)/2,(y2-y1)/2));
+    path(x1,y1,x2,y2,r,r,r,r);if(fill){c.fillStyle=fill;c.fill();}
+    if(stroke){c.strokeStyle=stroke;c.lineWidth=lw||1;c.stroke();}}
+  function txt(s,x,y,size,color,o={}){c.font=`${o.bold?'700 ':''}${size}px ${o.key?KEYF:UI}`;
+    c.fillStyle=color;c.textAlign=o.align||'center';c.textBaseline='middle';c.fillText(s,x,y);
+    return c.measureText(s).width;}
+  const mmss=ms=>{const t=Math.max(0,ms)/1000;return String(Math.floor(t/60)).padStart(2,'0')+':'+String(Math.floor(t%60)).padStart(2,'0');};
+  const glyph=k=>",./;'[]\\-=`".includes(k)?k:k.toUpperCase();
+  const SHORT={left:'左',right:'右',middle:'中'};
+  function style(mods){let g='mid',sharp=false,small='';
+    for(const m of mods){if(m==='left'){g='down';small='左';}else if(m==='right'){g='up';small='右';}else if(m==='middle')sharp=true;}
+    return {g,sharp,small};}
+  const modsText=mods=>['left','right','middle'].filter(m=>mods.includes(m)).map(m=>SHORT[m]+'键').join('+');
+  const sameMods=(a,b)=>a.length===b.length&&a.every(m=>b.includes(m));
+
+  /* ---------- 状态 ---------- */
+  let S=null;               // 当前会话
+  let raf=0, audio=null;
+  const held=new Set(), mouse=new Set();
+
+  function slotsFor(tune,speed){
+    const spb=60000/tune.p/speed;
+    return tune.notes.map(n=>{const combo=TABLE.map[n.pitch];
+      return {start:n.start*spb,hold:n.dur*spb,end:(n.start+n.dur)*spb,pitch:n.pitch,key:combo.key,mods:combo.mods};});
+  }
+
+  function begin(name,mode){
+    const tune=TUNES.find(t=>t.n===name)||TUNES[0];
+    stop(true);
+    const speed=+document.getElementById('gSpeed').value||1;
+    const slots=slotsFor(tune,speed);
+    S={tune,mode,wait:mode==='guide'&&document.getElementById('gWait').checked,slots,
+       marks:slots.map(()=>'pending'),cursor:0,clock:-LEAD_IN,last:performance.now(),
+       perfect:0,good:0,missed:0,wrong:0,combo:0,best:0,verdict:null,verdictAt:0,sounded:-1,
+       total:slots.length?slots[slots.length-1].end:0,doneAt:0,summary:''};
+    audio=newSession();
+    document.getElementById('gStop').disabled=false;
+    msgEl.textContent=mode==='guide'
+      ? (S.wait?'等待模式：每个音都会停下来等你按对。':'音符走到竖线时按下；颜色表示要按住哪个鼠标键（在上面的画面里按）。')
+      : '自动演奏的提示：程序替你按，悬浮窗同步显示正在按的键。';
+    stage.focus({preventScroll:true});
+    if(!raf)raf=requestAnimationFrame(loop);
+  }
+  function stop(silent){
+    if(audio){audio.stop();audio=null;}
+    S=null; held.clear(); mouse.clear();
+    document.getElementById('gStop').disabled=true;
+    if(!silent)msgEl.textContent='已停止。';
+    drawIdle();
+  }
+  window.startGuideDemo=(name,scroll)=>{
+    document.getElementById('gTune').value=name;
+    if(scroll)document.getElementById('guideDemo').scrollIntoView({behavior:'smooth',block:'center'});
+    begin(name,'guide');
+  };
+
+  /* ---------- 判定（与 practice.py 一致） ---------- */
+  function hit(i,t){const off=t-S.slots[i].start;let text;
+    if(S.wait||Math.abs(off)<=PERFECT){S.marks[i]='perfect';S.perfect++;text=S.wait?'对了':'完美';}
+    else{S.marks[i]='good';S.good++;text=off<0?'不错 · 稍早':'不错 · 稍晚';}
+    S.combo++;S.best=Math.max(S.best,S.combo);
+    while(S.cursor<S.slots.length&&S.marks[S.cursor]!=='pending')S.cursor++;
+    say(S.marks[i],text);}
+  function sweep(t){while(S.cursor<S.slots.length){const i=S.cursor;
+    if(S.marks[i]!=='pending'){S.cursor++;continue;}
+    if(S.slots[i].start+GOOD<t){S.marks[i]='miss';S.missed++;S.combo=0;say('miss','漏了');S.cursor++;continue;}
+    break;}}
+  function press(key,mods,t){sweep(t);const win=[];
+    for(let i=S.cursor;i<S.slots.length;i++){const s=S.slots[i];if(s.start-GOOD>t)break;
+      if(S.marks[i]==='pending'&&Math.abs(t-s.start)<=GOOD)win.push(i);}
+    if(!win.length)return;
+    for(const i of win){const s=S.slots[i];if(s.key===key&&sameMods(s.mods,mods)){hit(i,t);return;}}
+    const s=S.slots[win[0]];S.wrong++;S.combo=0;
+    say('wrong',s.key===key?'鼠标键不对：'+(modsText(s.mods)?'按住'+modsText(s.mods):'不按鼠标'):'按错了');}
+  function say(kind,text){S.verdict={kind,text};S.verdictAt=performance.now();}
+  function nextPending(){for(let i=S.cursor;i<S.slots.length;i++)if(S.marks[i]==='pending')return i;return -1;}
+
+  /* ---------- 输入：键盘按音键，画面上按鼠标键变调 ---------- */
+  function pitchOf(key,mods){const i=setKeys.indexOf(key);if(i<0)return null;
+    let p=60+SCALE[i];if(mods.has('left'))p-=12;if(mods.has('right'))p+=12;if(mods.has('middle'))p+=1;return p;}
+  window.addEventListener('keydown',e=>{
+    if(!S||S.mode!=='guide'||S.doneAt)return;
+    const key=e.key.toLowerCase();
+    if(!setKeys.includes(key))return;
+    e.preventDefault();
+    if(e.repeat||held.has(key))return;
+    held.add(key);
+    const p=pitchOf(key,mouse);
+    if(p!==null&&audio)audio.note(p,audioCtx.currentTime+0.005,0.42);
+    if(S.clock>=0)press(key,[...mouse],S.clock);
+  });
+  window.addEventListener('keyup',e=>held.delete(e.key.toLowerCase()));
+  window.addEventListener('blur',()=>{held.clear();mouse.clear();});
+  const BTN={0:'left',1:'middle',2:'right'};
+  stage.addEventListener('mousedown',e=>{if(BTN[e.button]){mouse.add(BTN[e.button]);e.preventDefault();stage.focus({preventScroll:true});}});
+  window.addEventListener('mouseup',e=>{if(BTN[e.button])mouse.delete(BTN[e.button]);});
+  stage.addEventListener('contextmenu',e=>e.preventDefault());
+  stage.addEventListener('auxclick',e=>e.preventDefault());
+
+  /* ---------- 每帧 ---------- */
+  function loop(now){
+    raf=0;
+    if(!S){drawIdle();return;}
+    const dt=now-S.last;S.last=now;
+    if(!S.doneAt){
+      let clock=S.clock+dt;
+      if(S.wait){const k=nextPending();if(k>=0&&clock>S.slots[k].start)clock=Math.max(S.clock,S.slots[k].start);}
+      S.clock=clock;
+      if(S.mode==='guide'&&S.clock>=0)sweep(S.clock);
+      if(S.mode==='auto')autoSound();
+      if(S.clock>S.total+500){S.doneAt=now;
+        if(S.mode==='guide'){for(let i=S.cursor;i<S.slots.length;i++)if(S.marks[i]==='pending'){S.marks[i]='miss';S.missed++;}
+          const n=S.slots.length,h=S.perfect+S.good;
+          S.summary=`命中 ${h}/${n}（${Math.round(h*100/Math.max(1,n))}%）· 完美 ${S.perfect} · 最大连击 ${S.best}`+(S.wrong?` · 按错 ${S.wrong} 次`:'');
+          msgEl.textContent='跟弹完成：'+S.summary;}
+        else msgEl.textContent='演示结束。';}
+    } else if(now-S.doneAt>6000){stop(true);return;}
+    draw(now);
+    raf=requestAnimationFrame(loop);
+  }
+  function autoSound(){while(S.sounded+1<S.slots.length&&S.slots[S.sounded+1].start<=S.clock){
+    S.sounded++;const s=S.slots[S.sounded];if(audio)audio.note(s.pitch,audioCtx.currentTime+0.005,s.hold/1000*0.92);}}
+
+  function focus(){
+    if(S.mode==='guide'){const k=nextPending();return [k<0?null:k,k<0||k+1>=S.slots.length?null:k+1];}
+    const t=S.clock;let cur=-1;
+    for(let i=0;i<S.slots.length;i++){if(S.slots[i].start<=t)cur=i;else break;}
+    if(cur>=0&&t<S.slots[cur].end)return [cur,cur+1<S.slots.length?cur+1:null];
+    const up=cur+1;return up<S.slots.length?[up,up+1<S.slots.length?up+1:null]:[null,null];
+  }
+
+  /* ---------- 画 ---------- */
+  function drawIdle(){
+    const tune=TUNES.find(t=>t.n===document.getElementById('gTune').value)||TUNES[0];
+    const slots=slotsFor(tune,1);
+    drawScene({mode:'guide',wait:false,title:tune.n,pos:-900,total:slots.length?slots[slots.length-1].end:0,
+      slots,marks:[],focus:0,next:1,stats:'',idle:true});
+  }
+  function draw(now){
+    const [f,n]=focus();
+    const waiting=S.wait&&f!==null&&!S.doneAt&&S.clock>=S.slots[f].start-0.5;
+    drawScene({mode:S.mode,wait:S.wait,title:S.tune.n,pos:S.clock,total:S.total,slots:S.slots,marks:S.marks,
+      focus:f,next:n,waiting,countdown:S.clock<0?Math.ceil(-S.clock/1000):0,
+      stats:S.mode==='guide'?`命中 ${S.perfect+S.good} · 漏 ${S.missed}`+(S.combo>=3?` · 连击 ${S.combo}`:''):'',
+      verdict:S.verdict,age:now-S.verdictAt,done:!!S.doneAt,summary:S.summary});
+  }
+
+  function drawScene(f){
+    c.clearRect(0,0,G.w,G.h);
+    rr(1,1,G.w-2,G.h-2,14,C.panel,C.border,1);
+    rr(G.pad,G.laneTop,G.laneRight,G.laneBottom,10,C.lane);
+    // 标题行
+    const [pl,pb,pf]=f.mode==='auto'?['自动',C.accentDark,'#eafff8']:f.wait?['等待','#4a3a1c','#ffe2b0']:['跟弹',C.guideDark,'#d6efff'];
+    rr(G.pad+2,G.headerY-10,G.pad+46,G.headerY+10,10,pb);
+    txt(pl,G.pad+24,G.headerY,12,pf,{bold:true});
+    txt(f.title,G.pad+56,G.headerY,14,C.text,{bold:true,align:'left'});
+    const tw=txt(`${mmss(f.pos)} / ${mmss(f.total)}`,G.laneRight-2,G.headerY,12,C.dim,{align:'right',key:true});
+    const right=G.laneRight-2-tw-14;
+    if(f.idle)txt('点下面「开始跟弹」试一试',right,G.headerY,12,C.dim,{align:'right'});
+    else if(f.countdown)txt(`${f.countdown} 秒后开始 · 准备好手`,right,G.headerY,12,C.warn,{align:'right'});
+    else if(f.stats)txt(f.stats,right,G.headerY,12,C.text,{align:'right'});
+    // 进度
+    c.fillStyle=C.past;c.fillRect(G.lineX,G.laneBottom-5,G.laneRight-10-G.lineX,2);
+    if(f.total>0&&f.pos>0){c.fillStyle=C.accentDark;c.fillRect(G.lineX,G.laneBottom-5,(G.laneRight-10-G.lineX)*Math.min(1,f.pos/f.total),2);}
+    // 判定线（画在音符下面）
+    let lc=f.mode==='auto'?C.accent:C.guide,lw=2;
+    if(f.waiting){const ph=(performance.now()/500)%1;lc=blend(C.warn,'#ffffff',0.3*(1-Math.abs(ph*2-1)));lw=3;}
+    c.strokeStyle=lc;c.lineWidth=lw;c.beginPath();c.moveTo(G.lineX,G.laneTop+6);c.lineTo(G.lineX,G.laneBottom-8);c.stroke();
+    c.beginPath();c.arc(G.lineX,G.laneMid,G.head/2+7,0,Math.PI*2);c.stroke();
+    // 音符
+    const span=G.laneRight-G.lineX;
+    const gaps=f.slots.slice(1).map((s,i)=>s.start-f.slots[i].start).filter(g=>g>1).sort((a,b)=>a-b);
+    let speed=span/3000;
+    if(gaps.length){const typ=gaps[Math.floor(gaps.length/10)];speed=Math.max(speed,Math.min((G.head+6)/typ,span/1200));}
+    const half=G.head/2,cy=G.laneMid;
+    f.slots.forEach((s,i)=>{
+      const cx=G.lineX+(s.start-f.pos)*speed;
+      if(cx+half>G.laneRight||cx+half+s.hold*speed<G.pad)return;
+      const {g,sharp,small}=style(s.mods);const [dk,br]=GROUP[g];
+      const mark=f.marks[i]||'pending';const sounding=s.start<=f.pos&&f.pos<s.end;const passed=f.pos>=s.end;
+      let hf,tf,ol,tl;
+      if(mark==='perfect'||mark==='good'){hf=blend(br,C.panel,0.35);tf=C.dark;ol=br;tl=blend(br,C.lane,0.45);}
+      else if(mark==='miss'){hf=C.past;tf=C.dim;ol='#6b3a42';tl=blend(C.past,C.lane,0.3);}
+      else if(sounding&&f.mode!=='guide'){hf=br;tf=C.dark;ol='#ffffff';tl=br;}
+      else if(passed){hf=C.past;tf=C.dim;ol='';tl=blend(C.past,C.lane,0.3);}
+      else{hf=dk;tf=br;ol=br;tl=blend(dk,br,0.25);}
+      const ts=Math.max(cx,G.zoneRight-12),te=Math.min(cx+s.hold*speed,G.laneRight-4);
+      if(te>ts+2)rr(ts,cy-G.tail/2,te,cy+G.tail/2,G.tail/2,tl);
+      if(cx+half<=G.zoneRight)return;          // 头整个在鼠标区底下，不画
+      rr(cx-half,cy-half,cx+half,cy+half,9,hf,ol,2);
+      if(small){txt(glyph(s.key),cx,cy-5,20,tf,{bold:true,key:true});txt(small,cx,cy+13,10,tf,{bold:true});}
+      else txt(glyph(s.key),cx,cy,22,tf,{bold:true,key:true});
+      if(sharp){const sx=cx+half-5,sy=cy-half+5;c.beginPath();c.arc(sx,sy,8,0,Math.PI*2);
+        c.fillStyle=passed&&mark!=='perfect'&&mark!=='good'?C.past:GROUP.sharp[1];c.fill();
+        c.strokeStyle=C.panel;c.lineWidth=1.5;c.stroke();txt('#',sx,sy,11,C.dark,{bold:true,key:true});}
+    });
+    // 左侧鼠标区（盖在走过判定线的音符上）
+    path(G.pad,G.laneTop,G.zoneRight,G.laneBottom,10,0,0,10);c.fillStyle=C.lane;c.fill();
+    c.strokeStyle=C.border;c.lineWidth=1;c.beginPath();c.moveTo(G.zoneRight,G.laneTop+10);c.lineTo(G.zoneRight,G.laneBottom-10);c.stroke();
+    const t=f.focus!==null&&f.focus!==undefined?f.slots[f.focus]:null;
+    const need=t?t.mods:[];
+    const [mx0,my0,mx1,my1]=G.mouse,rad=(mx1-mx0)/2,split=my0+(my1-my0)*0.42,mid=(mx0+mx1)/2;
+    rr(mx0,my0,mx1,my1,rad,'#202733','#3a4454',1.5);
+    const seg=(b)=>{const fill=need.includes(b)?(b==='left'?GROUP.down[1]:b==='right'?GROUP.up[1]:GROUP.sharp[1]):(b==='middle'?'#3a4454':'#2a3240');
+      const out=f.mode==='guide'&&!f.idle&&mouse.has(b)?(need.includes(b)?'#ffffff':C.danger):'';return [fill,out];};
+    let [sf,so]=seg('left');path(mx0+2,my0+2,mid-1,split,rad-2,0,0,0);c.fillStyle=sf;c.fill();if(so){c.strokeStyle=so;c.lineWidth=2;c.stroke();}
+    [sf,so]=seg('right');path(mid+1,my0+2,mx1-2,split,0,rad-2,0,0);c.fillStyle=sf;c.fill();if(so){c.strokeStyle=so;c.lineWidth=2;c.stroke();}
+    [sf,so]=seg('middle');rr(mid-3.5,my0+7,mid+3.5,my0+19,3.5,sf,so,2);
+    if(t){const {g}=style(t.mods);
+      if(need.length){txt('现在按住',G.textX,my0+8,11,C.dim,{align:'left'});
+        txt(modsText(need),G.textX,(my0+my1)/2+1,15,g!=='mid'?GROUP[g][1]:GROUP.sharp[1],{bold:true,align:'left'});}
+      else{txt('现在',G.textX,my0+8,11,C.dim,{align:'left'});txt('不按鼠标',G.textX,(my0+my1)/2+1,15,GROUP.mid[1],{bold:true,align:'left'});}
+      const nx=f.next!==null&&f.next!==undefined?f.slots[f.next]:null;
+      if(nx&&!sameMods(nx.mods,need)&&nx.start-f.pos<2500)txt('接着：'+(modsText(nx.mods)||'松开'),G.textX,my1-7,10,C.dim,{align:'left'});
+    }
+    // 键盘提示行
+    const {g:tg}=t?style(t.mods):{g:'mid'};const [tdk,tbr]=GROUP[tg];
+    const snd=t&&f.mode!=='guide'&&t.start<=f.pos&&f.pos<t.end;
+    setKeys.forEach((k,i)=>{
+      const x0=G.kbX0+i*(G.capW+G.capGap),y0=G.kbTop;const isT=t&&k===t.key;let fill,out,tc,sub;
+      if(f.mode==='guide'&&!f.idle&&held.has(k)){if(isT){fill=tbr;out='#ffffff';tc=sub=C.dark;}else{fill='#4a2228';out=C.danger;tc=sub='#ffd9dd';}}
+      else if(isT&&snd){fill=tbr;out='#ffffff';tc=sub=C.dark;}
+      else if(isT){fill=tdk;out=tbr;tc=sub=tbr;}
+      else{fill=C.cap;out=C.border;tc='#c3ccd9';sub=C.dim;}
+      rr(x0,y0,x0+G.capW,y0+G.capH,7,fill,out,1.5);
+      txt(i===7?'i':DIGIT[i],x0+7,y0+9,10,sub,{align:'left',key:true});
+      txt(glyph(k),x0+G.capW/2,y0+G.capH/2+3,16,tc,{bold:true,key:true});
+    });
+    // 判定提示 / 等待提示
+    const fx=G.lineX+half+10,fy=G.laneTop+9;
+    if(f.waiting&&t){const mt=modsText(t.mods);txt('等你按：'+(mt?mt+' + ':'')+glyph(t.key),fx,fy,12,C.warn,{bold:true,align:'left'});}
+    else if(f.verdict&&f.age<900){const col={perfect:C.accent,good:'#9be37d',wrong:C.danger,miss:C.dim}[f.verdict.kind]||C.text;
+      txt(f.verdict.text,fx,fy,12,blend(col,C.lane,Math.max(0,(f.age-350)/550)),{bold:true,align:'left'});}
+    // 结束总结牌
+    if(f.done){const cx=(G.lineX+G.laneRight)/2;const big=f.mode==='guide'?'完成！':'演奏完成';const sub=f.mode==='guide'?f.summary:'';
+      c.font=`700 20px ${UI}`;let w=c.measureText(big).width;c.font=`12px ${UI}`;w=Math.max(w,c.measureText(sub).width);
+      rr(cx-w/2-18,G.laneMid-(sub?28:20),cx+w/2+18,G.laneMid+(sub?30:20),10,C.panel,C.border,1);
+      txt(big,cx,G.laneMid-(sub?10:0),20,C.accent,{bold:true});if(sub)txt(sub,cx,G.laneMid+16,12,C.text);}
+  }
+
+  /* ---------- 控件 ---------- */
+  const sel=document.getElementById('gTune');
+  sel.innerHTML=TUNES.map(t=>`<option>${t.n}</option>`).join('');
+  sel.value='小星星';
+  sel.addEventListener('change',()=>{if(!S)drawIdle();});
+  document.getElementById('gStart').onclick=()=>begin(sel.value,'guide');
+  document.getElementById('gAuto').onclick=()=>begin(sel.value,'auto');
+  document.getElementById('gStop').onclick=()=>stop(false);
+  drawIdle();
+})();
 </script>
 </body>
 </html>

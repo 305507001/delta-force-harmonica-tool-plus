@@ -76,11 +76,16 @@ class Smoke:
         self.window = MainWindow()
         self.sender = DrySender()
         self.window.player.sender = self.sender
-        self.window.settings.countdown = 0.0        # 测试不等倒计时
-        self.window.settings.speed = 4.0            # 加速演完
+        settings = self.window.settings
+        self._restore = {name: getattr(settings, name)
+                         for name in ("guide_wait", "guide_speed", "overlay_scale")}
+        settings.countdown = 0.0        # 测试不等倒计时
+        settings.speed = 4.0            # 加速演完
+        settings.guide_speed = 4.0
+        settings.guide_wait = False     # 开着"等我按对"的话没人按键，测试会一直等
         # 跳过首次运行的免责确认框和使用步骤，否则测试会卡在模态窗口上
-        self.window.settings.disclaimer_accepted = True
-        self.window.settings.guide_shown = True
+        settings.disclaimer_accepted = True
+        settings.guide_shown = True
 
         self.failures = []
         self.notes = []
@@ -95,6 +100,11 @@ class Smoke:
             self.step_settings_save,
             self.step_library_play,
             self.step_wait_finish,
+            self.step_guide_play,
+            self.step_guide_finish,
+            self.step_auto_after_guide,
+            self.step_overlay_adjust,
+            self.step_settings_overlay,
             self.step_advanced_build,
             self.step_cleanup,
         ]
@@ -188,6 +198,57 @@ class Smoke:
         self.say(injected > 0, "演奏过程产生了按键事件", f"{injected} 条")
         self.say(not self.sender.held, "结束后没有残留按键", f"残留 {self.sender.held}")
 
+    def _wait_player(self, limit: float = 6.0) -> None:
+        deadline = time.time() + limit
+        while self.window.player.is_active and time.time() < deadline:
+            self.window.update()
+            time.sleep(0.02)
+
+    def step_guide_play(self) -> None:
+        from kouqin.engine import NullSender
+        self.injected_before_guide = self.sender.count
+        self.window.play_tune_by_name(self.saved_name, "guide")
+        self.say(isinstance(self.window.player.sender, NullSender), "跟弹换上了不发按键的注入器")
+        self.say(self.window.overlay.active, "跟弹时悬浮提示窗已开始工作",
+                 "（悬浮窗创建失败）" if self.window.overlay.failed else "")
+
+    def step_guide_finish(self) -> None:
+        self._wait_player()
+        self.window.update()
+        self.say(not self.window.player.is_active, "跟弹正常结束")
+        self.say(self.sender.count == self.injected_before_guide, "跟弹全程没有发出任何按键",
+                 f"多出 {self.sender.count - self.injected_before_guide} 条")
+        judge = self.window.overlay.judge
+        self.say(judge is not None and judge.missed == judge.total, "没人按键时每个音都判成漏",
+                 judge.summary() if judge else "没有判定器")
+
+    def step_auto_after_guide(self) -> None:
+        # 跟弹之后再自动演奏：必须换回测试的假注入器，而不是系统的真注入器
+        before = self.sender.count
+        self.window.play_tune_by_name(self.saved_name, "auto")
+        self.say(self.window.player.sender is self.sender, "自动演奏换回了原来的注入器")
+        self._wait_player()
+        self.say(self.sender.count > before, "换回后照常发出按键事件", f"{self.sender.count - before} 条")
+
+    def step_overlay_adjust(self) -> None:
+        overlay = self.window.overlay
+        overlay.set_adjusting(True)
+        self.window.update()
+        window = overlay.window
+        self.say(window is not None and not window.locked, "调整位置时悬浮窗解锁")
+        overlay.set_adjusting(False)
+        self.window.update()
+        self.say(window is not None and window.locked, "调整结束后悬浮窗重新锁定（点击穿透）")
+
+    def step_settings_overlay(self) -> None:
+        self.window.show_page("settings")
+        page = self.window.page_settings
+        page.var_scale.set("大")
+        page._on_overlay_option()
+        page._save()
+        self.say(abs(self.window.settings.overlay_scale - 1.25) < 0.01, "悬浮窗大小设置已保存",
+                 f"{self.window.settings.overlay_scale}")
+
     def step_advanced_build(self) -> None:
         self.window.show_page("advanced")
         self.window.update()
@@ -200,6 +261,8 @@ class Smoke:
         self.window.settings.keys = list(BASE_KEYS)
         self.window.settings.countdown = 3.0
         self.window.settings.speed = 1.0
+        for name, value in self._restore.items():
+            setattr(self.window.settings, name, value)
         self.window.apply_settings(self.window.settings)
         self.window.refresh_library()
         self.say(not self.window.library.exists(self.saved_name), "清理测试数据")

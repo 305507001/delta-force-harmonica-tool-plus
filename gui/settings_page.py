@@ -19,7 +19,10 @@ from kouqin.engine import TIMING_PRESETS
 from kouqin.layout import MOD_FEATURE_LABELS, MouseMod
 from kouqin.tune import STEP_DIGITS, STEP_NAMES
 
-from .theme import Palette, make_button, make_combobox, make_label, make_spinbox
+from .theme import (
+    Palette, enable_wheel_scroll, make_button, make_check, make_combobox, make_label,
+    make_slider, make_spinbox,
+)
 
 #: tkinter 的 keysym 转成本程序内部用的键名
 _KEYSYM_TO_KEY: Dict[str, str] = {
@@ -55,6 +58,23 @@ _KEY_DISPLAY: Dict[str, str] = {
 _MOD_CHOICES = ["不使用", "鼠标左键", "鼠标右键", "鼠标中键"]
 _MOD_VALUE = {"不使用": None, "鼠标左键": "left", "鼠标右键": "right", "鼠标中键": "middle"}
 _MOD_LABEL = {None: "不使用", "left": "鼠标左键", "right": "鼠标右键", "middle": "鼠标中键"}
+
+#: 悬浮提示窗的下拉选项：(显示名, 数值)
+_GUIDE_SPEEDS = [("0.5×（很慢）", 0.5), ("0.6×", 0.6), ("0.75×", 0.75), ("0.9×", 0.9), ("1.0×（原速）", 1.0)]
+_LOOKAHEADS = [(f"{n} 秒", float(n)) for n in (2, 3, 4, 5, 6)]
+_SCALES = [("小", 0.8), ("中", 1.0), ("大", 1.25), ("特大", 1.5)]
+
+
+def _label_for(choices, value: float) -> str:
+    """数值 → 最接近的那个选项（配置文件里可能是手改过的数）。"""
+    return min(choices, key=lambda item: abs(item[1] - value))[0]
+
+
+def _value_for(choices, label: str, fallback: float) -> float:
+    for text, value in choices:
+        if text == label:
+            return value
+    return fallback
 
 
 class KeyCaptureButton(tk.Button):
@@ -127,11 +147,12 @@ class SettingsPage(tk.Frame):
         self._window = self.canvas.create_window((0, 0), window=holder, anchor="nw")
         holder.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
         self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(self._window, width=e.width))
-        self.canvas.bind("<MouseWheel>", lambda e: self.canvas.yview_scroll(-1 if e.delta > 0 else 1, "units"))
+        enable_wheel_scroll(self.canvas)
 
         self._build_keys_card(holder)
         self._build_mods_card(holder)
         self._build_play_card(holder)
+        self._build_overlay_card(holder)
         self._build_compose_card(holder)
         self._build_actions(holder)
 
@@ -146,7 +167,9 @@ class SettingsPage(tk.Frame):
         head.pack(fill=tk.X, padx=16, pady=(14, 2))
         make_label(head, title, bold=True, size=11).pack(anchor="w")
         if subtitle:
-            make_label(card, subtitle, dim=True).pack(anchor="w", padx=16, pady=(0, 4))
+            # 说明文字可能很长，窗口缩到最小宽度时要能折行
+            make_label(card, subtitle, dim=True, wraplength=820,
+                       justify=tk.LEFT).pack(anchor="w", padx=16, pady=(0, 4))
 
         body = tk.Frame(card, bg=Palette["panel"])
         body.pack(fill=tk.X, padx=16, pady=(6, 16))
@@ -224,6 +247,125 @@ class SettingsPage(tk.Frame):
         self.var_countdown = tk.DoubleVar(value=self.settings.countdown)
         make_spinbox(row2, self.var_countdown, 0, 15, 1, 4).pack(side=tk.LEFT)
         make_label(row2, "秒（留出切到游戏的时间）", dim=True).pack(side=tk.LEFT, padx=(6, 0))
+
+    def _build_overlay_card(self, parent) -> None:
+        body = self._card(
+            parent, "悬浮提示窗（跟弹 / 自动演奏）",
+            "演奏时在游戏画面上浮出「下一个该按什么」。它只是本程序自己的一个置顶小窗：不读写游戏内存、"
+            "不注入游戏进程、不截屏，锁定后鼠标点击直接穿透到游戏。跟弹模式下程序一个键都不按。",
+        )
+        on_change = self._on_overlay_option
+
+        row = tk.Frame(body, bg=Palette["panel"])
+        row.pack(fill=tk.X)
+        self.var_overlay_auto = tk.BooleanVar(value=self.settings.overlay_in_auto)
+        make_check(row, "自动演奏时也显示悬浮提示", self.var_overlay_auto,
+                   command=on_change).pack(side=tk.LEFT, padx=(0, 24))
+        self.var_overlay_keyboard = tk.BooleanVar(value=self.settings.overlay_keyboard)
+        make_check(row, "显示下方的键盘提示行", self.var_overlay_keyboard,
+                   command=on_change).pack(side=tk.LEFT)
+
+        row = tk.Frame(body, bg=Palette["panel"])
+        row.pack(fill=tk.X, pady=(8, 0))
+        self.var_guide_wait = tk.BooleanVar(value=self.settings.guide_wait)
+        make_check(row, "跟弹时「等我按对再继续」", self.var_guide_wait,
+                   command=on_change).pack(side=tk.LEFT)
+        make_label(row, "练习用：每个音都停下来等你按对，不考节奏", dim=True).pack(side=tk.LEFT, padx=(8, 0))
+
+        row = tk.Frame(body, bg=Palette["panel"])
+        row.pack(fill=tk.X, pady=(12, 0))
+        make_label(row, "跟弹速度").pack(side=tk.LEFT, padx=(0, 8))
+        self.var_guide_speed = tk.StringVar(value=_label_for(_GUIDE_SPEEDS, self.settings.guide_speed))
+        combo = make_combobox(row, [t for t, _ in _GUIDE_SPEEDS], self.var_guide_speed, width=11)
+        combo.pack(side=tk.LEFT)
+        combo.bind("<<ComboboxSelected>>", lambda e: on_change())
+
+        make_label(row, "提前显示").pack(side=tk.LEFT, padx=(24, 8))
+        self.var_lookahead = tk.StringVar(value=_label_for(_LOOKAHEADS, self.settings.overlay_lookahead))
+        combo = make_combobox(row, [t for t, _ in _LOOKAHEADS], self.var_lookahead, width=6)
+        combo.pack(side=tk.LEFT)
+        combo.bind("<<ComboboxSelected>>", lambda e: on_change())
+
+        make_label(row, "大小").pack(side=tk.LEFT, padx=(24, 8))
+        self.var_scale = tk.StringVar(value=_label_for(_SCALES, self.settings.overlay_scale))
+        combo = make_combobox(row, [t for t, _ in _SCALES], self.var_scale, width=5)
+        combo.pack(side=tk.LEFT)
+        combo.bind("<<ComboboxSelected>>", lambda e: on_change())
+
+        row = tk.Frame(body, bg=Palette["panel"])
+        row.pack(fill=tk.X, pady=(12, 0))
+        make_label(row, "不透明度").pack(side=tk.LEFT, padx=(0, 8))
+        self.var_alpha = tk.DoubleVar(value=round(self.settings.overlay_alpha * 100))
+        make_slider(row, self.var_alpha, 30, 100, 1, length=180,
+                    command=lambda _v: on_change()).pack(side=tk.LEFT)
+        self.lbl_alpha = make_label(row, "", dim=True)
+        self.lbl_alpha.pack(side=tk.LEFT, padx=(8, 0))
+
+        row = tk.Frame(body, bg=Palette["panel"])
+        row.pack(fill=tk.X, pady=(14, 0))
+        self.btn_adjust = make_button(row, "调整位置 / 预览", self._toggle_adjust, kind="guide")
+        self.btn_adjust.pack(side=tk.LEFT)
+        make_button(row, "恢复默认位置", self._reset_overlay_position, kind="ghost").pack(side=tk.LEFT, padx=8)
+        self.lbl_adjust = make_label(row, "点了之后悬浮窗会出现并播放演示，用鼠标拖到合适的位置，双击它锁定",
+                                     dim=True)
+        self.lbl_adjust.pack(side=tk.LEFT, padx=(8, 0))
+
+        make_label(body, "全屏独占模式下任何窗口都盖不到游戏上——游戏要设成「无边框窗口化」或「窗口化」。",
+                   dim=True).pack(anchor="w", pady=(12, 0))
+
+    def _collect_overlay(self) -> None:
+        """把悬浮窗那几项收回 self.settings（不落盘）。"""
+        self.settings.overlay_in_auto = bool(self.var_overlay_auto.get())
+        self.settings.overlay_keyboard = bool(self.var_overlay_keyboard.get())
+        self.settings.guide_wait = bool(self.var_guide_wait.get())
+        self.settings.guide_speed = _value_for(_GUIDE_SPEEDS, self.var_guide_speed.get(), 1.0)
+        self.settings.overlay_lookahead = _value_for(_LOOKAHEADS, self.var_lookahead.get(), 3.0)
+        self.settings.overlay_scale = _value_for(_SCALES, self.var_scale.get(), 1.0)
+        try:
+            self.settings.overlay_alpha = max(0.3, min(1.0, float(self.var_alpha.get()) / 100.0))
+        except (tk.TclError, ValueError):
+            self.settings.overlay_alpha = 0.92
+
+    def _on_overlay_option(self) -> None:
+        """改了悬浮窗选项：当场在悬浮窗上看效果，点「保存设置」才落盘。"""
+        self._collect_overlay()
+        self.lbl_alpha.configure(text=f"{self.settings.overlay_alpha * 100:.0f}%")
+        self.app.overlay.apply_settings(self.settings)
+        # 滑块在程序改它的值时也会回调，所以要和已保存的设置比一下，真变了才提示
+        fields = ("overlay_in_auto", "overlay_keyboard", "guide_wait", "guide_speed",
+                  "overlay_lookahead", "overlay_scale", "overlay_alpha")
+        if any(getattr(self.settings, f) != getattr(self.app.settings, f) for f in fields):
+            self.lbl_status.configure(text="悬浮窗设置已改动，记得点「保存设置」")
+
+    def _toggle_adjust(self) -> None:
+        overlay = self.app.overlay
+        if overlay.adjusting:
+            overlay.set_adjusting(False)
+            return
+        if overlay.active:
+            self.lbl_adjust.configure(text="正在演奏，先停下再调整位置", fg=Palette["warn"])
+            return
+        overlay.set_adjusting(True)
+        # 预览用的是设置页上还没保存的外观，方便边调边看
+        overlay.apply_settings(self.settings)
+
+    def on_overlay_adjusting(self, on: bool) -> None:
+        """悬浮窗进入 / 退出调整状态时由主窗口调用（双击悬浮窗也会退出）。"""
+        if on:
+            self.btn_adjust.configure(text="完成调整（锁定）")
+            self.lbl_adjust.configure(text="拖动悬浮窗到合适的位置；双击它或点左边按钮锁定",
+                                      fg=Palette["warn"])
+        else:
+            self.btn_adjust.configure(text="调整位置 / 预览")
+            self.lbl_adjust.configure(text="位置已保存。锁定后鼠标点击会直接穿透到游戏",
+                                      fg=Palette["text_dim"])
+
+    def _reset_overlay_position(self) -> None:
+        for settings in (self.settings, self.app.settings):
+            settings.overlay_x = settings.overlay_y = None
+        self.app.settings.save()
+        self.app.overlay.apply_settings(self.settings)
+        self.lbl_adjust.configure(text="已恢复到屏幕下方居中", fg=Palette["text_dim"])
 
     def _build_compose_card(self, parent) -> None:
         body = self._card(parent, "谱曲默认值", "新建曲子时用这些参数，已保存的曲子不受影响。")
@@ -359,6 +501,14 @@ class SettingsPage(tk.Frame):
         self.var_countdown.set(self.settings.countdown)
         self.var_beats.set(f"{self.settings.beats_per_bar} 拍")
         self.var_bpm.set(self.settings.default_bpm)
+        self.var_overlay_auto.set(self.settings.overlay_in_auto)
+        self.var_overlay_keyboard.set(self.settings.overlay_keyboard)
+        self.var_guide_wait.set(self.settings.guide_wait)
+        self.var_guide_speed.set(_label_for(_GUIDE_SPEEDS, self.settings.guide_speed))
+        self.var_lookahead.set(_label_for(_LOOKAHEADS, self.settings.overlay_lookahead))
+        self.var_scale.set(_label_for(_SCALES, self.settings.overlay_scale))
+        self.var_alpha.set(round(self.settings.overlay_alpha * 100))
+        self.lbl_alpha.configure(text=f"{self.settings.overlay_alpha * 100:.0f}%")
         self._check_keys()
         self._on_mod_changed()
 
@@ -397,6 +547,7 @@ class SettingsPage(tk.Frame):
         self.cancel_capture()
         self.settings = self.app.settings.copy()
         self._sync()
+        self.app.overlay.apply_settings(self.app.settings)     # 撤掉悬浮窗上的预览效果
         self.lbl_status.configure(text="已放弃修改")
 
     def _reset_all(self) -> None:
@@ -436,6 +587,8 @@ class SettingsPage(tk.Frame):
             self.settings.default_bpm = max(30.0, min(300.0, float(self.var_bpm.get())))
         except (tk.TclError, ValueError):
             self.settings.default_bpm = 90.0
+
+        self._collect_overlay()
 
     def _save(self) -> None:
         self.cancel_capture()

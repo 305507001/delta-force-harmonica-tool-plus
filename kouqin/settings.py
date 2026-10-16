@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Dict, List, Optional, Tuple
 
 from .engine import TIMING_PRESETS
@@ -19,8 +20,21 @@ from .layout import BASE_KEYS, DEFAULT_MOD_ASSIGN, Layout, MouseMod
 
 __all__ = ["AppSettings", "ROOT_DIR", "DATA_DIR", "LIBRARY_DIR", "settings_path"]
 
-#: 程序根目录（本文件在 kouqin/ 下，往上一级就是项目根）
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+def _program_dir() -> str:
+    """
+    程序所在的文件夹。
+
+    源码运行时就是项目根（本文件在 kouqin/ 下，往上一级）。
+    打包成 exe（PyInstaller）后 __file__ 指向解包出来的内部目录——单文件版甚至是
+    每次运行完就删掉的临时目录——所以要改用 exe 自己所在的位置。
+    """
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+#: 程序根目录
+ROOT_DIR = _program_dir()
 
 #: 用户数据目录
 DATA_DIR = os.path.join(ROOT_DIR, "数据")
@@ -47,9 +61,27 @@ def _writable(path: str) -> bool:
         return False
 
 
+def _installed_in_program_files() -> bool:
+    """是不是用安装包装进了 Program Files 的 exe。"""
+    if not getattr(sys, "frozen", False):
+        return False
+    here = os.path.normcase(os.path.abspath(ROOT_DIR)) + os.sep
+    for var in ("ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"):
+        base = os.environ.get(var)
+        if base and here.startswith(os.path.normcase(os.path.abspath(base)) + os.sep):
+            return True
+    return False
+
+
 def _resolve_data_dir() -> str:
-    """优先用程序目录，写不了就退到用户目录。"""
-    if _writable(DATA_DIR):
+    """
+    优先用程序目录（绿色便携，拷走整个文件夹就带走了设置）。
+
+    写不了、或者是装在 Program Files 里的安装版，就退到用户目录——
+    以管理员身份运行时 Program Files 其实也写得进去，但设置不该跟着"整台电脑"走，
+    卸载重装也不该丢。
+    """
+    if not _installed_in_program_files() and _writable(DATA_DIR):
         return DATA_DIR
     fallback = os.path.join(os.environ.get("LOCALAPPDATA") or tempfile.gettempdir(), "KouqinStudio")
     os.makedirs(fallback, exist_ok=True)
@@ -83,6 +115,17 @@ class AppSettings:
     # --- 编辑 ---
     beats_per_bar: int = 4
     default_bpm: float = 90.0
+
+    # --- 悬浮提示窗 / 跟弹 ---
+    overlay_in_auto: bool = True        # 自动演奏时也显示悬浮提示
+    guide_wait: bool = False            # 跟弹：等我按对再继续
+    guide_speed: float = 1.0            # 跟弹速度（只影响跟弹，不影响自动演奏）
+    overlay_lookahead: float = 3.0      # 提前几秒显示后面的音
+    overlay_scale: float = 1.0          # 悬浮窗大小
+    overlay_alpha: float = 0.92         # 悬浮窗不透明度
+    overlay_keyboard: bool = True       # 显示下方的键盘提示行
+    overlay_x: Optional[int] = None     # 悬浮窗位置；None = 屏幕下方居中
+    overlay_y: Optional[int] = None
 
     # --- 其它 ---
     follow_playhead: bool = True
@@ -123,41 +166,17 @@ class AppSettings:
         return TIMING_PRESETS.get(self.timing, TIMING_PRESETS["normal"])
 
     def copy(self) -> "AppSettings":
-        return AppSettings(
-            keys=list(self.keys),
-            mod_assign=dict(self.mod_assign),
-            base_octave=self.base_octave,
-            timing=self.timing,
-            countdown=self.countdown,
-            speed=self.speed,
-            beats_per_bar=self.beats_per_bar,
-            default_bpm=self.default_bpm,
-            follow_playhead=self.follow_playhead,
-            installed_presets=self.installed_presets,
-            disclaimer_accepted=self.disclaimer_accepted,
-            guide_shown=self.guide_shown,
-        )
+        # 用 replace 而不是逐个字段抄：以后加字段不会漏抄（早先每加一项都得记得改这里）
+        return replace(self, keys=list(self.keys), mod_assign=dict(self.mod_assign))
 
     # ------------------------------------------------------------------ #
     # 读写
     # ------------------------------------------------------------------ #
 
     def to_dict(self) -> dict:
-        return {
-            "version": 1,
-            "keys": list(self.keys),
-            "mod_assign": {k: v for k, v in self.mod_assign.items()},
-            "base_octave": self.base_octave,
-            "timing": self.timing,
-            "countdown": self.countdown,
-            "speed": self.speed,
-            "beats_per_bar": self.beats_per_bar,
-            "default_bpm": self.default_bpm,
-            "follow_playhead": self.follow_playhead,
-            "installed_presets": self.installed_presets,
-            "disclaimer_accepted": self.disclaimer_accepted,
-            "guide_shown": self.guide_shown,
-        }
+        data = {"version": 1}
+        data.update(asdict(self))
+        return data
 
     @staticmethod
     def from_dict(data: dict) -> "AppSettings":
@@ -189,6 +208,20 @@ class AppSettings:
 
         if data.get("timing") in TIMING_PRESETS:
             settings.timing = data["timing"]
+
+        settings.overlay_in_auto = bool(data.get("overlay_in_auto", True))
+        settings.guide_wait = bool(data.get("guide_wait", False))
+        settings.guide_speed = clamp(data.get("guide_speed", 1.0), 0.25, 1.5, 1.0)
+        settings.overlay_lookahead = clamp(data.get("overlay_lookahead", 3.0), 1.0, 8.0, 3.0)
+        settings.overlay_scale = clamp(data.get("overlay_scale", 1.0), 0.6, 2.0, 1.0)
+        settings.overlay_alpha = clamp(data.get("overlay_alpha", 0.92), 0.3, 1.0, 0.92)
+        settings.overlay_keyboard = bool(data.get("overlay_keyboard", True))
+        for attr in ("overlay_x", "overlay_y"):
+            value = data.get(attr)
+            # 位置可以是负数（主屏左边 / 上边的副屏），但必须是个正常的整数
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and abs(value) < 100_000:
+                setattr(settings, attr, int(value))
+
         settings.follow_playhead = bool(data.get("follow_playhead", True))
         settings.installed_presets = bool(data.get("installed_presets", False))
         settings.disclaimer_accepted = bool(data.get("disclaimer_accepted", False))
@@ -228,7 +261,10 @@ class AppSettings:
         keep_guide = self.guide_shown
         fresh = AppSettings()
         for attr in ("keys", "mod_assign", "base_octave", "timing", "countdown",
-                     "speed", "beats_per_bar", "default_bpm", "follow_playhead"):
+                     "speed", "beats_per_bar", "default_bpm", "follow_playhead",
+                     "overlay_in_auto", "guide_wait", "guide_speed", "overlay_lookahead",
+                     "overlay_scale", "overlay_alpha", "overlay_keyboard",
+                     "overlay_x", "overlay_y"):
             setattr(self, attr, getattr(fresh, attr))
         self.installed_presets = keep_presets
         self.disclaimer_accepted = keep_disclaimer
