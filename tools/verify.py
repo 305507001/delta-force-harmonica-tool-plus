@@ -350,6 +350,36 @@ def test_wait_gate() -> None:
     report("最后全部演完", len(sender.presses) == len(notes), f"{len(sender.presses)}/{len(notes)}")
 
 
+def test_slow_thread_start() -> None:
+    """
+    播放线程起得慢的时候，play() 一返回调用方也必须看到「正在播放」。
+
+    Windows 上播放线程开头要加载 winmm 调定时器精度，要花几毫秒；早先状态由线程自己去切，
+    调用方在这几毫秒里读到的还是「空闲」，以为已经放完了（真 Windows 上的 CI 抓到的）。
+    这里人为让线程晚 80ms 起步，在任何系统上都能复现。
+    """
+    print("\n[10] 播放线程起步慢")
+    import kouqin.engine as engine_module
+    layout = Layout()
+    notes = parse_jianpu("T=240\n1 2 3 4").notes
+    events, _ = compile_notes(notes, layout, TIMING_PRESETS["normal"])
+    original = engine_module._fine_timer
+    engine_module._fine_timer = lambda on: time.sleep(0.08) if on else None
+    try:
+        for countdown in (0.0, 300.0):
+            sender = DrySender()
+            player = Player(sender)
+            player.load(events)
+            player.play(countdown_ms=countdown)
+            active = player.is_active
+            _wait_done(player)
+            report(f"倒计时 {countdown:.0f}ms：play() 一返回就是播放中", active, player.state)
+            report(f"倒计时 {countdown:.0f}ms：照常全部演完", len(sender.presses) == len(notes),
+                   f"{len(sender.presses)}/{len(notes)}")
+    finally:
+        engine_module._fine_timer = original
+
+
 def main() -> int:
     print("=" * 62)
     print("《口琴工坊》端到端验证（使用假注入器，不会真的发按键）")
@@ -364,6 +394,7 @@ def main() -> int:
     test_mods_after_interrupt()
     test_no_drift()
     test_wait_gate()
+    test_slow_thread_start()
 
     print("\n" + "=" * 62)
     if FAILED:
