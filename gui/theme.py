@@ -11,7 +11,10 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Optional
 
-__all__ = ["Palette", "apply_theme", "make_button", "make_label", "make_combobox", "make_spinbox"]
+__all__ = [
+    "Palette", "apply_theme", "make_button", "make_label", "make_combobox", "make_spinbox",
+    "make_check", "make_slider", "enable_wheel_scroll", "blend", "add_hover",
+]
 
 # 想换皮肤改这里就够了
 Palette = {
@@ -23,11 +26,47 @@ Palette = {
     "text_dim": "#7f8b9c",
     "accent": "#35d0a5",
     "accent_dark": "#1f8a6c",
+    "guide": "#2b9fd8",          # 跟弹模式的主题色（蓝），和"自动演奏"的青绿区分开
+    "guide_dark": "#173247",
     "warn": "#e0a04a",
     "danger": "#e2606a",
     "entry_bg": "#0e1118",
     "sel": "#2b6cff",
 }
+
+
+def blend(color: str, other: str, amount: float) -> str:
+    """两个 #rrggbb 颜色按比例混合（amount=0 是 color，1 是 other）。"""
+    amount = max(0.0, min(1.0, amount))
+    a = [int(color[i:i + 2], 16) for i in (1, 3, 5)]
+    b = [int(other[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(x + (y - x) * amount):02x}" for x, y in zip(a, b))
+
+
+def add_hover(widget: tk.Widget) -> None:
+    """
+    鼠标移上去稍微提亮一点。
+
+    Windows 下的 tk.Button 没有悬停效果，一排按钮看不出哪个能点。
+    提亮色在移入时按"当前底色"现算，所以别处改了按钮底色（比如导航页签切换）也不会被冲掉。
+    """
+
+    def enter(_event) -> None:
+        if str(widget.cget("state")) == tk.DISABLED:
+            return
+        base = widget.cget("bg")
+        widget._kq_base = base
+        widget._kq_hover = blend(base, "#ffffff", 0.08)
+        widget.configure(bg=widget._kq_hover)
+
+    def leave(_event) -> None:
+        base = getattr(widget, "_kq_base", None)
+        if base and widget.cget("bg") == getattr(widget, "_kq_hover", None):
+            widget.configure(bg=base)
+        widget._kq_base = None
+
+    widget.bind("<Enter>", enter, add="+")
+    widget.bind("<Leave>", leave, add="+")
 
 
 def apply_theme(root: tk.Misc) -> ttk.Style:
@@ -88,6 +127,7 @@ def make_button(master, text: str, command=None, kind: str = "normal",
     colors = {
         "normal": (Palette["panel_alt"], Palette["text"], Palette["border"]),
         "accent": (Palette["accent_dark"], "#eafff8", Palette["accent"]),
+        "guide": (Palette["guide_dark"], "#d6efff", Palette["guide"]),
         "danger": ("#4a2228", "#ffd9dd", Palette["danger"]),
         "ghost": (Palette["panel"], Palette["text_dim"], Palette["border"]),
     }[kind]
@@ -114,6 +154,7 @@ def make_button(master, text: str, command=None, kind: str = "normal",
     )
     if width:
         button.configure(width=width)
+    add_hover(button)
     return button
 
 
@@ -160,3 +201,64 @@ def make_spinbox(master, variable, frm: float, to: float, increment: float = 1.0
         font=("Microsoft YaHei UI", 9),
         justify="center",
     )
+
+
+def make_check(master, text: str, variable, command=None, bg: Optional[str] = None) -> tk.Checkbutton:
+    """深色风格的勾选框。"""
+    bg = bg or Palette["panel"]
+    return tk.Checkbutton(
+        master, text=text, variable=variable, command=command,
+        bg=bg, fg=Palette["text"], selectcolor=Palette["entry_bg"],
+        activebackground=bg, activeforeground=Palette["text"],
+        font=("Microsoft YaHei UI", 9), bd=0, highlightthickness=0,
+        cursor="hand2", anchor="w",
+    )
+
+
+def make_slider(master, variable, frm: float, to: float, resolution: float = 1.0,
+                length: int = 160, command=None, bg: Optional[str] = None) -> tk.Scale:
+    """深色风格的横向滑块（不显示数值，数值由调用方用标签显示）。"""
+    bg = bg or Palette["panel"]
+    return tk.Scale(
+        master, variable=variable, from_=frm, to=to, resolution=resolution,
+        orient=tk.HORIZONTAL, length=length, showvalue=False,
+        command=command, bg=bg, fg=Palette["text"], troughcolor=Palette["entry_bg"],
+        activebackground=Palette["accent"], highlightthickness=0, bd=0,
+        sliderrelief=tk.FLAT, sliderlength=18, width=10, cursor="hand2",
+    )
+
+
+#: 已登记"可以用滚轮滚动"的画布
+_WHEEL_TARGETS: list = []
+
+
+def enable_wheel_scroll(canvas: tk.Canvas) -> None:
+    """
+    让鼠标停在列表里任何位置（包括行里的文字、按钮上）都能用滚轮滚动。
+
+    只给画布本身绑 <MouseWheel> 的话，指针一落到画布里嵌的行控件上，
+    滚轮事件就被那个控件吃掉了——表现为"只有行与行的缝隙里能滚"。
+    这里统一在顶层接住滚轮，再看指针底下的控件属于哪块画布。
+    """
+    _WHEEL_TARGETS.append(canvas)
+    root = canvas.winfo_toplevel()
+    if getattr(root, "_kq_wheel_bound", False):
+        return
+    root._kq_wheel_bound = True
+
+    def on_wheel(event) -> None:
+        try:
+            widget = event.widget.winfo_containing(event.x_root, event.y_root)
+        except (tk.TclError, AttributeError, KeyError):
+            # 指针落在 Tk 内部控件上（比如下拉框弹出的列表），不归我们管
+            return
+        while widget is not None:
+            if widget in _WHEEL_TARGETS:
+                try:
+                    widget.yview_scroll(-1 if event.delta > 0 else 1, "units")
+                except tk.TclError:
+                    pass
+                return
+            widget = getattr(widget, "master", None)
+
+    root.bind_all("<MouseWheel>", on_wheel, add="+")

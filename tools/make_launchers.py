@@ -18,6 +18,12 @@
     cmd.exe 按系统 ANSI（简体中文下是 GBK）解析批处理，
     而编辑器默认存成 UTF-8，中文路径会变成乱码导致"系统找不到指定的文件"。
     所以这里统一用 Python 以 GBK + CRLF 落盘，保证双击就能用。
+
+为什么脚本里不再有 chcp 65001（修改版改动）：
+    cmd.exe 是一行一行读批处理的，每读一行都按"当前代码页"解码。
+    在 GBK 文件中途切到 65001（UTF-8），后面的中文行——包括 "口琴工坊.py"
+    这个文件名——就会被当成 UTF-8 解码成乱码。Python 3.6+ 往控制台输出中文
+    走的是 Unicode 接口，本来就不需要 chcp 65001。
 """
 
 from __future__ import annotations
@@ -68,7 +74,6 @@ if errorlevel 1 (
     exit /b
 )
 
-chcp 65001 >nul
 {NOTICE}
 
 rem ---- 3. 启动程序（优先用 pythonw，不留黑窗口）----
@@ -86,7 +91,6 @@ if errorlevel 1 (
     "诊断启动.bat": f"""@echo off
 cd /d "%~dp0"
 title 口琴工坊 - 诊断模式
-chcp 65001 >nul
 
 echo ============================================
 echo   诊断模式（保留控制台，出错能看到原因）
@@ -109,7 +113,6 @@ pause
     "拖拽演奏.bat": f"""@echo off
 cd /d "%~dp0"
 title 拖拽演奏
-chcp 65001 >nul
 
 if "%~1"=="" (
     echo.

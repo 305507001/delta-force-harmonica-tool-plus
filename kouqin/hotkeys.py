@@ -8,6 +8,8 @@
 
 ``GetAsyncKeyState`` 每个按键只读一次状态位，开销可以忽略，
 而且天然支持"按一下触发一次"（边沿检测），不抢占也不吞键。
+
+跟弹模式判定玩家按得对不对，用的也是同一个办法（见 :class:`KeyWatcher`）。
 """
 
 from __future__ import annotations
@@ -16,16 +18,31 @@ import ctypes
 import sys
 import threading
 import time
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
-__all__ = ["GlobalHotkeys", "VK"]
+__all__ = ["GlobalHotkeys", "VK", "KeyWatcher"]
 
 if sys.platform != "win32":  # pragma: no cover
     raise ImportError("全局热键仅支持 Windows")
 
+from .sender import SCANCODES
+
 _user32 = ctypes.WinDLL("user32", use_last_error=True)
 _user32.GetAsyncKeyState.argtypes = (ctypes.c_int,)
 _user32.GetAsyncKeyState.restype = ctypes.c_short
+_user32.MapVirtualKeyW.argtypes = (ctypes.c_uint, ctypes.c_uint)
+_user32.MapVirtualKeyW.restype = ctypes.c_uint
+
+_MAPVK_VSC_TO_VK = 1
+
+#: 鼠标键的虚拟键码
+_MOUSE_VK: Dict[str, int] = {"left": 0x01, "right": 0x02, "middle": 0x04}
+
+#: 符号键的虚拟键码（MapVirtualKey 换算失败时的兜底，按美式键盘）
+_OEM_VK: Dict[str, int] = {
+    ",": 0xBC, ".": 0xBE, "/": 0xBF, ";": 0xBA, "'": 0xDE, "[": 0xDB,
+    "]": 0xDD, "\\": 0xDC, "-": 0xBD, "=": 0xBB, "`": 0xC0,
+}
 
 #: 常用虚拟键码
 VK: Dict[str, int] = {
@@ -132,3 +149,69 @@ class GlobalHotkeys(threading.Thread):
         self._stopped.set()
         if self.is_alive() and self is not threading.current_thread():
             self.join(timeout=0.5)
+
+
+def key_to_vk(key: str) -> Optional[int]:
+    """
+    音键名 → 虚拟键码。
+
+    先按扫描码（也就是键盘上的物理位置）换算——注入器发的是扫描码，游戏认的也是
+    物理位置，这样即使系统用的不是美式键盘布局，"程序提示的键"和"游戏里响的键"
+    仍然是同一个。换算失败再退回按字符查表。
+    """
+    key = (key or "").lower()
+    scan = SCANCODES.get(key)
+    if scan is not None:
+        vk = _user32.MapVirtualKeyW(scan, _MAPVK_VSC_TO_VK)
+        if vk:
+            return vk
+    if len(key) == 1 and key.isalnum():
+        return ord(key.upper())
+    return _OEM_VK.get(key)
+
+
+class KeyWatcher:
+    """
+    读取「此刻按着哪些音键 / 鼠标键」，给跟弹模式判定用。
+
+    和 :class:`GlobalHotkeys` 一样只调用 ``GetAsyncKeyState`` 读状态位：
+    不装钩子、不拦截、不改动任何输入，也完全不接触游戏进程——
+    玩家的每一下按键游戏都照常收到，本程序只是在旁边"看一眼"。
+
+    由界面定时器调用 :meth:`poll`（约 60 次/秒），不另开线程。
+    """
+
+    def __init__(self, keys: Sequence[str]) -> None:
+        self._vks: Dict[str, int] = {}
+        for key in keys:
+            vk = key_to_vk(key)
+            if vk:
+                self._vks[key] = vk
+        self._down: Dict[str, bool] = {key: False for key in self._vks}
+        self.prime()
+
+    def prime(self) -> None:
+        """记下当前状态，并清掉"上次查询以来按过"的残留位，免得一开始就误判一次按键。"""
+        for key, vk in self._vks.items():
+            self._down[key] = bool(_user32.GetAsyncKeyState(vk) & 0x8000)
+
+    def poll(self) -> Tuple[List[str], List[str], List[str]]:
+        """
+        :returns: ``(这次新按下的音键, 正按着的音键, 正按着的鼠标键)``
+        """
+        pressed: List[str] = []
+        held: List[str] = []
+        for key, vk in self._vks.items():
+            state = _user32.GetAsyncKeyState(vk)
+            down = bool(state & 0x8000)
+            # 最低位 = 上次查询以来按下过：两次轮询之间"按下又松开"的快速点按靠它接住。
+            # 只在之前是松开状态时才认，长按时系统的自动重复会反复置这一位。
+            tapped = bool(state & 0x0001)
+            if (down or tapped) and not self._down[key]:
+                pressed.append(key)
+            if down:
+                held.append(key)
+            self._down[key] = down
+        mouse = [name for name, vk in _MOUSE_VK.items()
+                 if _user32.GetAsyncKeyState(vk) & 0x8000]
+        return pressed, held, mouse

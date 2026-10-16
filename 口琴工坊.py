@@ -483,17 +483,76 @@ def cmd_selftest(args) -> int:
             settings.keys = list("asdfghjk")
             settings.countdown = 5.0
             settings.timing = "safe"
+            settings.guide_wait = True
+            settings.overlay_scale = 1.25
+            settings.overlay_x, settings.overlay_y = -1600, 420      # 主屏左边的副屏
             assert settings.save(path), "写配置文件失败"
             back = AppSettings.load(path)
             assert back.keys == list("asdfghjk"), "键位没存住"
             assert abs(back.countdown - 5.0) < 0.01, "倒计时没存住"
             assert back.timing == "safe", "节奏档没存住"
+            assert back.guide_wait and abs(back.overlay_scale - 1.25) < 0.01, "跟弹选项没存住"
+            assert (back.overlay_x, back.overlay_y) == (-1600, 420), "悬浮窗位置没存住"
+            assert back.copy().keys is not back.keys, "copy() 不能和原对象共用列表"
             assert not back.validate_keymap(), "校验器误报冲突"
             # 故意造一个冲突，校验器应当抓到
             back.keys[1] = back.keys[0]
             assert back.validate_keymap(), "键位冲突没被检出"
         return "存取正常，冲突校验有效"
     check("设置存取", settings_roundtrip)
+
+    # ---- 跟弹 ----
+
+    def slots_match_events():
+        """悬浮窗提示用的槽位，必须和自动演奏真正按下的时刻、按键完全一致。"""
+        score = parse_jianpu("1 2 3 1' 5, #4 5")
+        events, report = compile_notes(score.notes, layout, TIMING_PRESETS["normal"])
+        downs = [e for e in events if e.kind == "kd"]
+        assert len(downs) == len(report.slots), f"{len(downs)} 个按键事件 / {len(report.slots)} 个槽位"
+        for event, slot in zip(downs, report.slots):
+            assert abs(event.t - slot.start) < 1e-6 and event.arg == slot.combo.key, \
+                f"槽位与事件对不上：{event} / {slot}"
+        return f"{len(report.slots)} 个音，提示时间与自动演奏一致"
+    check("跟弹提示与自动演奏同一套时间", slots_match_events)
+
+    def judge_check():
+        from kouqin.practice import Judge, Mark
+        score = parse_jianpu("T=120\n1 2' 5, #4")
+        _, report = compile_notes(score.notes, layout, TIMING_PRESETS["normal"])
+        s = report.slots
+        judge = Judge(s)
+        verdict = judge.press(s[0].combo.key, s[0].combo.mods, s[0].start + 30)
+        assert verdict.kind == Mark.PERFECT, f"准点按下应为完美：{verdict}"
+        verdict = judge.press(s[1].combo.key, (), s[1].start)
+        assert verdict.kind == "wrong" and "鼠标" in verdict.text, f"漏按鼠标键应提示：{verdict}"
+        verdict = judge.press(s[1].combo.key, s[1].combo.mods, s[1].start + 120)
+        assert verdict.kind == Mark.GOOD, f"按错后改对、稍晚，应为不错：{verdict}"
+        judge.sweep(s[2].start + 500)
+        assert judge.marks[2] == Mark.MISS, "过了判定窗口还没按应判漏"
+        assert judge.press("q", (), s[3].start - 2000) is None, "离哪个音都远的按键应忽略"
+        judge.finish()
+        assert (judge.hits, judge.missed) == (2, 2), f"统计不对：{judge.summary()}"
+        wait = Judge(s, lenient=True)
+        assert wait.press(s[0].combo.key, s[0].combo.mods, s[0].start + 150).kind == Mark.PERFECT, \
+            "等待模式下按对就算完美"
+        return judge.summary()
+    check("跟弹判定", judge_check)
+
+    def difficulty_check():
+        from kouqin.practice import difficulty
+        from kouqin.tune import PRESET_TUNES
+        stars = []
+        for tune in PRESET_TUNES:
+            _, report = compile_notes(tune.to_notes(), layout, TIMING_PRESETS["normal"])
+            value, _hint = difficulty(report.slots)
+            assert 1 <= value <= 5, f"{tune.name} 难度越界：{value}"
+            stars.append(value)
+        fast = parse_jianpu("T=200\n1/ 1'/ 5,/ #4/ 2'/ 6,/ 3/ 7,/ " * 4).notes
+        _, report = compile_notes(fast, layout, TIMING_PRESETS["normal"])
+        hard, _ = difficulty(report.slots)
+        assert hard > max(stars), f"快速跳八度的片段应该比内置曲目难：{hard} vs {max(stars)}"
+        return f"内置曲目 {min(stars)}~{max(stars)} 星，快速跳八度片段 {hard} 星"
+    check("跟弹难度估计", difficulty_check)
 
     print("-" * 60)
     print("自检结果：" + ("全部通过 ✔" if ok else "存在失败项 ✘"))

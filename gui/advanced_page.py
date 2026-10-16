@@ -125,6 +125,8 @@ class AdvancedPage(tk.Frame):
         self.lbl_stats.pack(side=tk.LEFT, padx=12)
 
         make_button(bar, "▶  演奏这一段", self.play_current, kind="accent").pack(side=tk.RIGHT, padx=(4, 10), pady=8)
+        make_button(bar, "跟弹这一段", lambda: self.play_current(mode="guide"),
+                    kind="guide").pack(side=tk.RIGHT, padx=4, pady=8)
         make_button(bar, "存进曲库", self.save_to_library, kind="ghost").pack(side=tk.RIGHT, padx=4, pady=8)
 
         export = tk.Menubutton(
@@ -269,7 +271,8 @@ class AdvancedPage(tk.Frame):
     # 播放 / 试听
     # ================================================================== #
 
-    def play_current(self) -> None:
+    def play_current(self, mode: str = "auto") -> None:
+        """演奏（auto）或跟弹（guide）当前载入的这一段。倍速用本页工具栏上的值。"""
         if not self.notes:
             self.app.log("还没有载入乐谱")
             return
@@ -279,6 +282,7 @@ class AdvancedPage(tk.Frame):
             transpose=int(self.var_transpose.get() or 0),
             fold=_FOLD_CHOICES.get(self.var_fold.get(), FoldMode.FOLD),
             speed=float(self.var_speed.get() or 1.0),
+            mode=mode,
         )
 
     def toggle_preview(self) -> None:

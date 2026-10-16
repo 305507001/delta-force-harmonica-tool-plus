@@ -1,7 +1,6 @@
 @echo off
 cd /d "%~dp0"
 title ÍÏ×§ÑÝ×à
-chcp 65001 >nul
 
 if "%~1"=="" (
     echo.

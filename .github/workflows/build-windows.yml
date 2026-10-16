@@ -1,0 +1,113 @@
+# 在 GitHub 的 Windows 机器上自检 + 打包。
+#
+#   每次 push / PR      在真 Windows 上跑自检（不会真的发按键）
+#   推送 v* 标签        自检通过后打出「免安装版 zip」和「安装包 exe」，并建一个 Release 草稿
+#   手动运行            Actions 页面点 "Run workflow"：同样打包，结果在本次运行的 Artifacts 里下载
+#
+# 发版本：
+#   git tag v2.1.0 && git push origin v2.1.0
+#   然后到 GitHub 的 Releases 页面检查草稿，确认没问题再点 Publish。
+
+name: Windows 自检与打包
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write          # 建 Release 草稿需要
+
+env:
+  PYTHONUTF8: "1"          # 让 Python 在 CI 的控制台里也用 UTF-8 输出中文
+  PYTHONIOENCODING: utf-8
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 核心自检
+        run: python 口琴工坊.py --selftest
+
+      - name: 端到端时序验证
+        # 共享的 CI 虚拟机偶尔会卡一下，计时类检查可能误报，所以不拦打包；结果仍在日志里
+        continue-on-error: true
+        run: python tools/verify.py
+
+      - name: 界面冒烟测试
+        # 需要桌面会话，CI 机器上不一定能开窗口，不拦打包
+        continue-on-error: true
+        timeout-minutes: 5
+        run: python tools/gui_smoke.py
+
+  build:
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装 PyInstaller
+        run: python -m pip install --upgrade pip pyinstaller==6.11.1
+
+      - name: 安装 Inno Setup（用来做安装包）
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y }
+
+      - name: 下载 Inno Setup 简体中文界面（失败就用英文界面）
+        continue-on-error: true
+        shell: pwsh
+        run: >
+          Invoke-WebRequest -UseBasicParsing
+          -Uri https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/ChineseSimplified.isl
+          -OutFile packaging/ChineseSimplified.isl
+
+      - name: 打包
+        run: python packaging/build_windows.py --skip-tests
+
+      - name: 上传打包结果（本次运行的 Artifacts）
+        uses: actions/upload-artifact@v4
+        with:
+          name: kouqin-windows
+          path: dist/*
+          if-no-files-found: error
+
+      - name: 建 Release 草稿
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: 口琴工坊 ${{ github.ref_name }}（个人修改版）
+          files: dist/*
+          body: |
+            ## ⚠️ 免责声明（下载前必读）
+
+            - **仅供个人学习、技术研究与娱乐使用，严禁在任何在线对局中使用**（匹配、排位、多人合作、公开房间等有其他真实玩家的模式），跟弹模式也不例外。
+            - 「自动演奏」靠模拟键盘鼠标输入实现，**可以被游戏的反作弊系统识别**。使用自动化输入可能违反游戏用户协议，导致账号被警告、限制、临时或**永久封禁**，虚拟财产和进度可能一并损失。
+            - **禁止任何商业用途**：不得出售、出租、收费分发、代练，或以展示本工具为主要内容营利。
+            - 按"现状"提供，不附带任何担保。一切后果由使用者本人承担，原作者、修改者及贡献者不承担任何责任。
+            - 与《三角洲行动》及其开发商、发行商**没有任何关联、合作或授权关系**。
+            - 这是在 [2776525655/delta-force-harmonica-tool](https://github.com/2776525655/delta-force-harmonica-tool) 基础上的**个人修改版**，改动见「修改说明.md」；原作者没有参与、也没有为这些修改背书。
+
+            下载或使用即视为同意 [LICENSE](${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/LICENSE) 与 [DISCLAIMER.md](${{ github.server_url }}/${{ github.repository }}/blob/${{ github.ref_name }}/DISCLAIMER.md) 的全部条款。
+
+            ## 下载哪个
+
+            - `口琴工坊-*-免安装版.zip`：解压后双击「口琴工坊.exe」，设置存在同目录「数据」里
+            - `口琴工坊-*-安装包.exe`：安装到 Program Files（安装时会先显示许可协议和免责声明），设置存在 `%LOCALAPPDATA%\KouqinStudio`
+
+            两个都不需要装 Python，启动时会申请管理员权限。exe 没有数字签名，Windows 可能提示「已保护你的电脑」（点「更多信息」→「仍要运行」）；它会读键盘状态、模拟按键，杀毒软件也可能误报。
