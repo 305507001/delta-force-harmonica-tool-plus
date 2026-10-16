@@ -553,8 +553,25 @@ class Player:
         self._index = bisect.bisect_left(self._times, self._pending_ms)
         self._resync = True        # 从中途开始时，先把这个位置该按着的修饰键按上
         self._countdown_ms = max(0.0, countdown_ms)
+        # 状态当场切好再起线程：调用方一返回就能看到 is_active。
+        # （早先等播放线程自己去切，线程起得慢一点——比如 Windows 上加载 winmm 那几毫秒——
+        #   调用方就会以为已经放完了；倒计时的界面刷新也会因此偶尔不动。）
+        if self._countdown_ms > 0:
+            self._countdown_deadline = time.perf_counter() + self._countdown_ms / 1000.0
+            self._set_state(PlayState.COUNTDOWN)
+        else:
+            self._start_clock()
+            self._set_state(PlayState.PLAYING)
         self._thread = threading.Thread(target=self._run, name="kouqin-player", daemon=True)
         self._thread.start()
+
+    def _start_clock(self) -> None:
+        """从「下次播放的起点」开始计时。"""
+        with self._lock:
+            # 时间基准要把"定位偏移"算进去，否则从中间开始时事件会提前弹出
+            self._origin = time.perf_counter() - self._pending_ms / 1000.0
+            self._shift = 0.0
+            self._pause_stamp = self._origin
 
     def pause(self) -> None:
         with self._lock:
@@ -642,10 +659,8 @@ class Player:
     def _run(self) -> None:
         _fine_timer(True)
         try:
-            # 倒计时阶段：让人有时间切回游戏
-            if self._countdown_ms > 0:
-                self._set_state(PlayState.COUNTDOWN)
-                self._countdown_deadline = time.perf_counter() + self._countdown_ms / 1000.0
+            # 倒计时阶段：让人有时间切回游戏（状态已经由 play() 切成 COUNTDOWN）
+            if self._state == PlayState.COUNTDOWN:
                 while time.perf_counter() < self._countdown_deadline:
                     if self._abort.is_set():
                         self._countdown_deadline = 0.0
@@ -653,14 +668,9 @@ class Player:
                         return
                     time.sleep(0.02)
                 self._countdown_deadline = 0.0
-
-            with self._lock:
-                # 时间基准要把"定位偏移"算进去，否则从中间开始时事件会提前弹出。
-                # 先定基准再切状态：别人一看到 PLAYING 就会来读 position。
-                self._origin = time.perf_counter() - self._pending_ms / 1000.0
-                self._shift = 0.0
-                self._pause_stamp = self._origin
-            self._set_state(PlayState.PLAYING)
+                # 先定基准再切状态：别人一看到 PLAYING 就会来读 position
+                self._start_clock()
+                self._set_state(PlayState.PLAYING)
             last_report = 0.0
 
             while True:
