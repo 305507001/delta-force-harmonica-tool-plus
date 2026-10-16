@@ -31,20 +31,24 @@ DisableProgramGroupPage=yes
 LicenseFile={#SourceDir}\许可协议.txt
 InfoBeforeFile={#SourceDir}\先看我.txt
 OutputDir={#OutputDir}
-OutputBaseFilename={#AppName}-v{#AppVersion}-安装包
+; 输出文件名用英文：GitHub 的 Release 附件名不支持中文
+OutputBaseFilename=KouqinStudio-v{#AppVersion}-setup
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
 ; 程序本身每次启动都要管理员权限（游戏收模拟按键需要），装到 Program Files 也一样
 PrivilegesRequired=admin
-ArchitecturesAllowed=x64
-ArchitecturesInstallIn64BitMode=x64
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\{#AppExe}
 UninstallDisplayName={#AppName} {#AppVersion}
 
 [Languages]
+; 优先用 packaging\ 里放的语言文件，其次用 Inno Setup 自带的简体中文，都没有就英文
 #if FileExists(AddBackslash(SourcePath) + "ChineseSimplified.isl")
 Name: "chs"; MessagesFile: "ChineseSimplified.isl"
+#elif FileExists(AddBackslash(CompilerPath) + "Languages\ChineseSimplified.isl")
+Name: "chs"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 #else
 Name: "en"; MessagesFile: "compiler:Default.isl"
 #endif
