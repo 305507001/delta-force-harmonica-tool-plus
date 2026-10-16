@@ -3,10 +3,13 @@
 """
 在 Windows 上把《口琴工坊》打成两种发行包，输出到 dist/：
 
-    口琴工坊-v<版本>-免安装版.zip   解压后双击「口琴工坊.exe」；设置和曲库存在同目录的「数据」里，
-                                    整个文件夹拷走就能带走
-    口琴工坊-v<版本>-安装包.exe     装进 Program Files，带开始菜单 / 桌面快捷方式和卸载；
-                                    设置和曲库存在 %LOCALAPPDATA%\\KouqinStudio
+    KouqinStudio-v<版本>-portable.zip   免安装版：解压后双击「口琴工坊.exe」；设置和曲库存在同目录的
+                                        「数据」里，整个文件夹拷走就能带走
+    KouqinStudio-v<版本>-setup.exe      安装包：装进 Program Files，带开始菜单 / 桌面快捷方式和卸载；
+                                        设置和曲库存在 %LOCALAPPDATA%\\KouqinStudio
+
+    文件名用英文：GitHub 的 Release 附件名不支持中文（会被直接删掉，只剩 "-v2.1.0-.zip"）。
+    压缩包里的文件夹和「口琴工坊.exe」照旧是中文。
 
 两种都不需要电脑上装 Python。exe 自带"以管理员身份运行"的声明（和「启动.bat」一样，
 游戏收模拟按键需要），双击时会弹 UAC。
@@ -18,8 +21,8 @@
     python packaging\\build_windows.py --skip-tests
 
 安装包需要 Inno Setup 6（https://jrsoftware.org/isinfo.php）；没装的话只打免安装版。
-把 Inno Setup 的简体中文语言文件放成 packaging\\ChineseSimplified.isl，安装界面就是中文，
-没有就用英文界面。GitHub 上的自动打包（.github/workflows/build-windows.yml）用的也是这个脚本。
+安装界面用 Inno Setup 自带的简体中文（6.x 较新的版本都带）；老版本没有的话，
+把 ChineseSimplified.isl 放进 packaging\\ 也行，都没有就是英文界面。GitHub 上的自动打包（.github/workflows/build-windows.yml）用的也是这个脚本。
 
 注意：这类自己打的 exe 没有数字签名，又会读键盘状态、模拟按键，杀毒软件和 SmartScreen
 很可能误报，需要手动放行。
@@ -213,7 +216,7 @@ def build_installer(folder: str, version: str) -> Optional[str]:
     os.makedirs(DIST, exist_ok=True)
     run([iscc, f"/DAppVersion={version}", f"/DSourceDir={folder}", f"/DOutputDir={DIST}",
          os.path.join(HERE, "installer.iss")])
-    path = os.path.join(DIST, f"{APP}-v{version}-安装包.exe")
+    path = os.path.join(DIST, f"KouqinStudio-v{version}-setup.exe")
     return path if os.path.isfile(path) else None
 
 
@@ -244,7 +247,7 @@ def main(argv=None) -> int:
     print("\n[3/4] 免安装版")
     stage_docs(folder, version, PORTABLE_NOTE)
     os.makedirs(DIST, exist_ok=True)
-    portable = os.path.join(DIST, f"{APP}-v{version}-免安装版.zip")
+    portable = os.path.join(DIST, f"KouqinStudio-v{version}-portable.zip")
     make_zip(folder, portable)
 
     print("\n[4/4] 安装包")

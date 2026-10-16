@@ -67,8 +67,8 @@
 
 | 用法 | 要装 Python 吗 | 设置和曲子存在哪 |
 |---|---|---|
-| **免安装版**（推荐）：下载 `口琴工坊-v*-免安装版.zip`，解压后双击 `口琴工坊.exe` | 不用 | 同文件夹的「数据」里，拷走整个文件夹就带走了 |
-| **安装包**：下载 `口琴工坊-v*-安装包.exe`，装好后从开始菜单 / 桌面打开 | 不用 | `%LOCALAPPDATA%\KouqinStudio` |
+| **免安装版**（推荐）：下载 `KouqinStudio-v*-portable.zip`，解压后双击 `口琴工坊.exe` | 不用 | 同文件夹的「数据」里，拷走整个文件夹就带走了 |
+| **安装包**：下载 `KouqinStudio-v*-setup.exe`，装好后从开始菜单 / 桌面打开 | 不用 | `%LOCALAPPDATA%\KouqinStudio` |
 | **源码运行**：下载整个仓库，双击「启动.bat」（下面详细说） | 要 | 同文件夹的「数据」里 |
 
 免安装版和安装包在本仓库的 Releases 页面下载。exe 会申请管理员权限（游戏收模拟按键需要），
@@ -533,7 +533,7 @@ python -m pip install pyinstaller
 python packaging\build_windows.py
 ```
 
-先跑自检，再在 `dist\` 下生成 `口琴工坊-v<版本>-免安装版.zip` 和 `口琴工坊-v<版本>-安装包.exe`
+先跑自检，再在 `dist\` 下生成 `KouqinStudio-v<版本>-portable.zip`（免安装版）和 `KouqinStudio-v<版本>-setup.exe`（安装包）
 （没装 Inno Setup 就只出免安装版）。PyInstaller 不能跨系统打包，Mac / Linux 上打不出 exe。
 
 **在 GitHub 上自动打包**（不需要自己有 Windows 电脑）：仓库里的 `.github/workflows/build-windows.yml`
