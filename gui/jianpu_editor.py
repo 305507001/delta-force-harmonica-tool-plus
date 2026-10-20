@@ -74,7 +74,7 @@ class JianpuEditor(tk.Toplevel):
             left, bg=Palette["entry_bg"], fg=Palette["text"],
             insertbackground=Palette["accent"], relief=tk.FLAT, bd=0,
             font=("Consolas", 12), undo=True, wrap="word", padx=10, pady=8,
-            selectbackground=Palette["sel"],
+            selectbackground=Palette["sel_bg"], selectforeground=Palette["text"],
         )
         self.text.grid(row=1, column=0, sticky="nsew")
         self.text.insert("1.0", initial)
@@ -109,7 +109,7 @@ class JianpuEditor(tk.Toplevel):
         right.grid_rowconfigure(3, weight=1)
 
         # 底：按钮
-        bar = tk.Frame(self, bg=Palette["panel_alt"])
+        bar = tk.Frame(self, bg=Palette["bg"])
         bar.grid(row=1, column=0, columnspan=2, sticky="ew")
         make_button(bar, "取消", self.destroy, kind="ghost").pack(side=tk.RIGHT, padx=(4, 10), pady=8)
         make_button(bar, "载入谱面  (Ctrl+Enter)", self._apply, kind="accent").pack(side=tk.RIGHT, padx=4, pady=8)

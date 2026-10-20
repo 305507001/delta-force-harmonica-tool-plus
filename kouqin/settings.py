@@ -48,6 +48,9 @@ SETTINGS_FILE = "settings.json"
 #: 悬浮窗位置预设（custom = 用户拖动过的位置）
 OVERLAY_ANCHORS = ("top", "upper", "lower", "bottom", "custom")
 
+#: 界面外观：跟随系统 / 浅色 / 深色
+APPEARANCES = ("system", "light", "dark")
+
 #: 允许作为音键的字符（防止用户填进奇怪的东西）
 _ALLOWED_KEYS = set("abcdefghijklmnopqrstuvwxyz0123456789,./;'[]\\-=")
 
@@ -84,6 +87,11 @@ def _resolve_data_dir() -> str:
     以管理员身份运行时 Program Files 其实也写得进去，但设置不该跟着"整台电脑"走，
     卸载重装也不该丢。
     """
+    override = os.environ.get("KOUQIN_DATA_DIR", "").strip()
+    if override:
+        # 测试用：把设置和曲库放到别处，不碰使用者自己的数据
+        os.makedirs(override, exist_ok=True)
+        return override
     if not _installed_in_program_files() and _writable(DATA_DIR):
         return DATA_DIR
     fallback = os.path.join(os.environ.get("LOCALAPPDATA") or tempfile.gettempdir(), "KouqinStudio")
@@ -126,7 +134,8 @@ class AppSettings:
     guide_speed: float = 1.0            # 跟弹速度（只影响跟弹，不影响自动演奏）
     overlay_lookahead: float = 3.0      # 提前几秒显示后面的音
     overlay_scale: float = 1.0          # 悬浮窗大小
-    overlay_alpha: float = 0.92         # 悬浮窗不透明度
+    overlay_alpha: float = 0.95         # 悬浮窗上音符、键帽、文字的不透明度
+    overlay_backdrop: float = 0.45      # 悬浮窗底板的透明度（0 = 不透明，0.9 = 几乎全透明）
     overlay_keyboard: bool = True       # 显示下方的键盘提示行
     overlay_anchor: str = "upper"       # 悬浮窗位置预设：top / upper / lower / bottom / custom
     overlay_x: Optional[int] = None     # 拖动过的位置（overlay_anchor 为 custom 时用）
@@ -134,6 +143,9 @@ class AppSettings:
 
     # --- 在线曲库 ---
     online_library_base: str = ""       # 空 = 用默认地址（kouqin.online.DEFAULT_BASE）
+
+    # --- 外观 ---
+    appearance: str = "system"          # system / light / dark
 
     # --- 其它 ---
     follow_playhead: bool = True
@@ -223,7 +235,10 @@ class AppSettings:
         settings.guide_speed = clamp(data.get("guide_speed", 1.0), 0.25, 1.5, 1.0)
         settings.overlay_lookahead = clamp(data.get("overlay_lookahead", 3.0), 1.0, 8.0, 3.0)
         settings.overlay_scale = clamp(data.get("overlay_scale", 1.0), 0.6, 2.0, 1.0)
-        settings.overlay_alpha = clamp(data.get("overlay_alpha", 0.92), 0.3, 1.0, 0.92)
+        settings.overlay_alpha = clamp(data.get("overlay_alpha", 0.95), 0.3, 1.0, 0.95)
+        settings.overlay_backdrop = clamp(data.get("overlay_backdrop", 0.45), 0.0, 0.9, 0.45)
+        if data.get("appearance") in APPEARANCES:
+            settings.appearance = data["appearance"]
         settings.overlay_keyboard = bool(data.get("overlay_keyboard", True))
         for attr in ("overlay_x", "overlay_y"):
             value = data.get(attr)
@@ -285,7 +300,7 @@ class AppSettings:
                      "overlay_in_auto", "guide_wait", "guide_speed", "overlay_lookahead",
                      "overlay_scale", "overlay_alpha", "overlay_keyboard",
                      "overlay_anchor", "overlay_x", "overlay_y", "legato",
-                     "online_library_base"):
+                     "online_library_base", "overlay_backdrop", "appearance"):
             setattr(self, attr, getattr(fresh, attr))
         self.installed_presets = keep_presets
         self.preset_revision = keep_revision

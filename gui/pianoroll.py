@@ -14,33 +14,43 @@
 from __future__ import annotations
 
 import tkinter as tk
+from tkinter import ttk
 from typing import Callable, List, Optional, Sequence, Tuple
 
 from kouqin.layout import Layout
 from kouqin.smf import Note
 
+from .theme import is_dark, ui_font
+
 __all__ = ["PianoRoll"]
 
-# 配色
-BG = "#141821"
-ROW_WHITE = "#1c222e"
-ROW_BLACK = "#171c26"
-ROW_OUT = "#12151c"
-GRID_MINOR = "#232a38"
-GRID_MAJOR = "#303a4d"
-RULER_BG = "#1a1f2a"
-RULER_FG = "#7c8798"
-KEYCOL_BG = "#1a1f2a"
-KEYCOL_FG = "#9aa5b6"
-NOTE_OK = "#35c98a"
-NOTE_OK_SEL = "#6ff0b6"
-NOTE_FOLD = "#e0954a"
-NOTE_FOLD_SEL = "#ffc078"
-NOTE_SKIP = "#59616f"
-NOTE_SKIP_SEL = "#8d97a8"
-PLAYHEAD = "#ff5f6d"
-SEL_BOX = "#4d7cff"
-PLAYED_FLASH = "#ffffff"
+# 配色：浅色 / 深色各一套，建卷帘时按当前外观灌进模块全局变量（下面的绘制代码直接读这些名字）
+
+_ROLL_COLORS = {
+    "light": dict(
+        BG="#ffffff", ROW_WHITE="#ffffff", ROW_BLACK="#f6f4ee", ROW_OUT="#efece4",
+        GRID_MINOR="#efece5", GRID_MAJOR="#ddd9ce", RULER_BG="#f6f4ee", RULER_FG="#7a786f",
+        KEYCOL_BG="#f6f4ee", KEYCOL_FG="#5f5d56",
+        NOTE_OK="#5c9a3d", NOTE_OK_SEL="#3d7a24", NOTE_FOLD="#d88a2a", NOTE_FOLD_SEL="#b06a10",
+        NOTE_SKIP="#bdbab0", NOTE_SKIP_SEL="#8f8c82", PLAYHEAD="#c96442", SEL_BOX="#2d6cb5",
+        PLAYED_FLASH="#1f1e1d", SEL_OUTLINE="#1f1e1d", HINT_FG="#9d9b93",
+    ),
+    "dark": dict(
+        BG="#262624", ROW_WHITE="#2c2c2a", ROW_BLACK="#262624", ROW_OUT="#1f1e1d",
+        GRID_MINOR="#33332f", GRID_MAJOR="#44433e", RULER_BG="#1f1e1d", RULER_FG="#86847c",
+        KEYCOL_BG="#1f1e1d", KEYCOL_FG="#b4b2a9",
+        NOTE_OK="#35c98a", NOTE_OK_SEL="#6ff0b6", NOTE_FOLD="#e0954a", NOTE_FOLD_SEL="#ffc078",
+        NOTE_SKIP="#59616f", NOTE_SKIP_SEL="#8d97a8", PLAYHEAD="#d97757", SEL_BOX="#6ea8e8",
+        PLAYED_FLASH="#ffffff", SEL_OUTLINE="#ffffff", HINT_FG="#86847c",
+    ),
+}
+
+
+def _apply_colors() -> None:
+    globals().update(_ROLL_COLORS["dark" if is_dark() else "light"])
+
+
+_apply_colors()
 
 _BLACK_KEY_SEMITONES = {1, 3, 6, 8, 10}
 _KEY_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
@@ -59,6 +69,7 @@ class PianoRoll(tk.Frame):
 
     def __init__(self, master, layout: Layout, on_edited: Optional[Callable] = None,
                  on_select: Optional[Callable] = None, **kwargs) -> None:
+        _apply_colors()
         super().__init__(master, bg=BG, **kwargs)
         self.layout = layout
         self.on_edited = on_edited
@@ -86,9 +97,7 @@ class PianoRoll(tk.Frame):
         self._flash_until: float = 0.0
 
         self.canvas = tk.Canvas(self, bg=BG, highlightthickness=0, cursor="arrow")
-        self.hbar = tk.Scrollbar(self, orient=tk.HORIZONTAL, command=self._on_scroll,
-                                 troughcolor="#1a1f2a", bg="#2b3342",
-                                 activebackground="#3c4658", width=12)
+        self.hbar = ttk.Scrollbar(self, orient=tk.HORIZONTAL, command=self._on_scroll)
         self.canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         self.hbar.pack(side=tk.BOTTOM, fill=tk.X)
 
@@ -233,7 +242,7 @@ class PianoRoll(tk.Frame):
             c.create_rectangle(max(x1, KEYCOL_W - 1), y + 1,
                                min(x2, width + 4), y + ROW_H - 1,
                                fill=fill, width=1,
-                               outline="#ffffff" if selected else "")
+                               outline=SEL_OUTLINE if selected else "")
 
         # --- 框选 ---
         if self._box is not None:
@@ -251,7 +260,7 @@ class PianoRoll(tk.Frame):
         if not self.notes:
             c.create_text((KEYCOL_W + width) / 2, (RULER_H + height) / 2,
                           text="拖入或打开一个 MIDI / 简谱文件开始",
-                          fill="#4a5464", font=("Microsoft YaHei UI", 11))
+                          fill=HINT_FG, font=ui_font(11))
         self._sync_scrollbar()
 
     def _grid_step(self) -> Tuple[float, float]:

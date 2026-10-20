@@ -15,7 +15,7 @@ from __future__ import annotations
 import tkinter as tk
 from typing import List, Tuple
 
-from .theme import Palette, make_button, make_label
+from .theme import Palette, make_button, make_label, title_font
 
 #: 最顶上的两条硬性红线
 RED_LINES: Tuple[str, ...] = (
@@ -83,17 +83,17 @@ class DisclaimerDialog(tk.Toplevel):
         root = tk.Frame(self, bg=Palette["bg"], padx=22, pady=18)
         root.pack(fill=tk.BOTH, expand=True)
 
-        make_label(root, "使 用 须 知", bold=True, size=15, bg=Palette["bg"]).pack(anchor="w")
+        tk.Label(root, text="使用须知", font=title_font(20), bg=Palette["bg"], fg=Palette["text"]).pack(anchor="w")
         make_label(root, "开始之前，请花 20 秒读完下面这些", dim=True,
                    bg=Palette["bg"]).pack(anchor="w", pady=(4, 14))
 
         # ---- 红线 ----
-        red = tk.Frame(root, bg="#2b1417", highlightthickness=1, highlightbackground="#7a2b34")
+        red = tk.Frame(root, bg=Palette["danger_soft"], highlightthickness=1, highlightbackground=Palette["danger_soft"])
         red.pack(fill=tk.X)
-        inner = tk.Frame(red, bg="#2b1417", padx=16, pady=13)
+        inner = tk.Frame(red, bg=Palette["danger_soft"], padx=16, pady=13)
         inner.pack(fill=tk.X)
         for line in RED_LINES:
-            tk.Label(inner, text=line, bg="#2b1417", fg="#ff8b96",
+            tk.Label(inner, text=line, bg=Palette["danger_soft"], fg=Palette["danger"],
                      font=("Microsoft YaHei UI", 12, "bold"), anchor="w",
                      wraplength=560, justify=tk.LEFT).pack(anchor="w", pady=2)
 

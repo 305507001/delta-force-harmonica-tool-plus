@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 from typing import Dict, List, Optional, Tuple
 
 from kouqin.engine import TIMING_PRESETS
@@ -21,8 +21,9 @@ from kouqin.tune import STEP_DIGITS, STEP_NAMES
 
 from .theme import (
     Palette, enable_wheel_scroll, make_button, make_check, make_combobox, make_label,
-    make_slider, make_spinbox,
+    make_slider, make_spinbox, mono_font, px, title_font, ui_font,
 )
+from .widgets import RoundButton, RoundedPanel, SearchEntry, Segmented
 
 #: tkinter 的 keysym 转成本程序内部用的键名
 _KEYSYM_TO_KEY: Dict[str, str] = {
@@ -79,34 +80,28 @@ def _value_for(choices, label: str, fallback: float) -> float:
     return fallback
 
 
-class KeyCaptureButton(tk.Button):
+class KeyCaptureButton(RoundButton):
     """点一下开始录入，然后按键盘上的任意一个键。"""
 
     def __init__(self, master, page: "SettingsPage", index: int) -> None:
         self.page = page
         self.index = index
-        super().__init__(
-            master, command=self.start,
-            bg=Palette["entry_bg"], fg=Palette["text"],
-            activebackground=Palette["accent_dark"], activeforeground="#ffffff",
-            relief=tk.FLAT, bd=0, width=8, pady=6, cursor="hand2",
-            font=("Consolas", 12, "bold"), highlightthickness=2,
-            highlightbackground=Palette["border"],
-        )
+        super().__init__(master, command=self.start, width=8, height=40, size=12, bold=True,
+                         colors=(Palette["panel_alt"], Palette["border_strong"], Palette["text"]))
         self.refresh()
 
     def refresh(self) -> None:
         key = self.page.settings.keys[self.index]
         self.configure(text=_KEY_DISPLAY.get(key, key.upper()),
-                       highlightbackground=Palette["border"], fg=Palette["text"])
+                       colors=(Palette["panel_alt"], Palette["border_strong"], Palette["text"]))
 
     def start(self) -> None:
         self.page.begin_capture(self.index, self)
 
     def show_capturing(self, occupied: bool = False) -> None:
-        self.configure(text="按下按键…",
-                       fg=Palette["warn"] if occupied else Palette["accent"],
-                       highlightbackground=Palette["accent"])
+        tone = "warn" if occupied else "accent"
+        text = Palette["warn"] if occupied else Palette["accent_text"]
+        self.configure(text="按下按键…", colors=(Palette[f"{tone}_soft"], Palette[tone], text))
         self.page.after(3000, self.refresh)
 
 
@@ -139,10 +134,8 @@ class SettingsPage(tk.Frame):
         self.canvas = tk.Canvas(wrap, bg=Palette["bg"], highlightthickness=0)
         self.canvas.grid(row=0, column=0, sticky="nsew")
 
-        scroll = tk.Scrollbar(wrap, orient=tk.VERTICAL, command=self.canvas.yview,
-                              bg=Palette["panel_alt"], troughcolor=Palette["panel"],
-                              activebackground=Palette["border"], width=12)
-        scroll.grid(row=0, column=1, sticky="ns")
+        scroll = ttk.Scrollbar(wrap, orient=tk.VERTICAL, command=self.canvas.yview)
+        scroll.grid(row=0, column=1, sticky="ns", padx=(0, px(6)))
         self.canvas.configure(yscrollcommand=scroll.set)
 
         holder = tk.Frame(self.canvas, bg=Palette["bg"])
@@ -151,6 +144,13 @@ class SettingsPage(tk.Frame):
         self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(self._window, width=e.width))
         enable_wheel_scroll(self.canvas)
 
+        head = tk.Frame(holder, bg=Palette["bg"])
+        head.pack(fill=tk.X, padx=px(28), pady=(px(24), px(2)))
+        tk.Label(head, text="设置", font=title_font(22), bg=Palette["bg"], fg=Palette["text"],
+                 anchor="w").pack(fill=tk.X)
+        make_label(head, "改完点最下面的「保存设置」才生效", dim=True, anchor="w").pack(fill=tk.X, pady=(px(4), 0))
+
+        self._build_appearance_card(holder)
         self._build_keys_card(holder)
         self._build_mods_card(holder)
         self._build_play_card(holder)
@@ -162,21 +162,29 @@ class SettingsPage(tk.Frame):
     # ------------------------------------------------------------------ #
 
     def _card(self, parent, title: str, subtitle: str = "") -> tk.Frame:
-        card = tk.Frame(parent, bg=Palette["panel"], highlightthickness=1,
-                        highlightbackground=Palette["border"])
-        card.pack(fill=tk.X, padx=16, pady=(14, 0))
+        panel = RoundedPanel(parent, fill=Palette["panel"], radius=12, padx=18, pady=16)
+        panel.pack(fill=tk.X, padx=(px(28), px(22)), pady=(px(14), 0))
+        card = panel.body
 
-        head = tk.Frame(card, bg=Palette["panel"])
-        head.pack(fill=tk.X, padx=16, pady=(14, 2))
-        make_label(head, title, bold=True, size=11).pack(anchor="w")
+        make_label(card, title, bold=True, size=11, anchor="w").pack(fill=tk.X)
         if subtitle:
             # 说明文字可能很长，窗口缩到最小宽度时要能折行
-            make_label(card, subtitle, dim=True, wraplength=820,
-                       justify=tk.LEFT).pack(anchor="w", padx=16, pady=(0, 4))
+            make_label(card, subtitle, dim=True, wraplength=px(820),
+                       justify=tk.LEFT, anchor="w").pack(fill=tk.X, pady=(px(2), 0))
 
         body = tk.Frame(card, bg=Palette["panel"])
-        body.pack(fill=tk.X, padx=16, pady=(6, 16))
+        body.pack(fill=tk.X, pady=(px(10), 0))
         return body
+
+    def _build_appearance_card(self, parent) -> None:
+        body = self._card(parent, "外观", "跟随系统时，Windows 设置里「应用模式」是深色就用深色。"
+                                         "改完保存后界面会重新载入一次（正在演奏的会停下）。")
+        self.seg_appearance = Segmented(body, [("system", "跟随系统"), ("light", "浅色"), ("dark", "深色")],
+                                        command=lambda _k: self._mark_dirty(), value=self.settings.appearance)
+        self.seg_appearance.pack(anchor="w")
+
+    def _mark_dirty(self) -> None:
+        self.lbl_status.configure(text="改动还没保存，记得点「保存设置」")
 
     def _build_keys_card(self, parent) -> None:
         body = self._card(
@@ -195,7 +203,7 @@ class SettingsPage(tk.Frame):
 
             text = f"{labels[index]}  {STEP_NAMES[index % 7]}" + ("（高）" if index == 7 else "")
             tk.Label(cell, text=text, bg=Palette["panel"], fg=Palette["text_dim"],
-                     font=("Microsoft YaHei UI", 9), anchor="w", width=11).pack(side=tk.LEFT)
+                     font=ui_font(9), anchor="w", width=11).pack(side=tk.LEFT)
 
             button = KeyCaptureButton(cell, self, index)
             button.pack(side=tk.LEFT)
@@ -305,12 +313,20 @@ class SettingsPage(tk.Frame):
 
         row = tk.Frame(body, bg=Palette["panel"])
         row.pack(fill=tk.X, pady=(12, 0))
-        make_label(row, "不透明度").pack(side=tk.LEFT, padx=(0, 8))
-        self.var_alpha = tk.DoubleVar(value=round(self.settings.overlay_alpha * 100))
-        make_slider(row, self.var_alpha, 30, 100, 1, length=180,
+        make_label(row, "背景透明度").pack(side=tk.LEFT, padx=(0, 8))
+        self.var_backdrop = tk.DoubleVar(value=round(self.settings.overlay_backdrop * 100))
+        make_slider(row, self.var_backdrop, 0, 90, 5, length=180,
                     command=lambda _v: on_change()).pack(side=tk.LEFT)
-        self.lbl_alpha = make_label(row, "", dim=True)
+        self.lbl_backdrop = make_label(row, "", dim=True, width=5, anchor="w")
+        self.lbl_backdrop.pack(side=tk.LEFT, padx=(8, 0))
+        make_label(row, "提示不透明度").pack(side=tk.LEFT, padx=(24, 8))
+        self.var_alpha = tk.DoubleVar(value=round(self.settings.overlay_alpha * 100))
+        make_slider(row, self.var_alpha, 60, 100, 5, length=150,
+                    command=lambda _v: on_change()).pack(side=tk.LEFT)
+        self.lbl_alpha = make_label(row, "", dim=True, width=5, anchor="w")
         self.lbl_alpha.pack(side=tk.LEFT, padx=(8, 0))
+        make_label(body, "背景越透明，越能看清下面的游戏画面；音符和键帽只跟「提示不透明度」走，背景调到很透明也看得清。",
+                   dim=True, anchor="w").pack(fill=tk.X, pady=(6, 0))
 
         row = tk.Frame(body, bg=Palette["panel"])
         row.pack(fill=tk.X, pady=(14, 0))
@@ -340,13 +356,21 @@ class SettingsPage(tk.Frame):
         self.settings.overlay_lookahead = _value_for(_LOOKAHEADS, self.var_lookahead.get(), 3.0)
         self.settings.overlay_scale = _value_for(_SCALES, self.var_scale.get(), 1.0)
         try:
-            self.settings.overlay_alpha = max(0.3, min(1.0, float(self.var_alpha.get()) / 100.0))
+            self.settings.overlay_alpha = max(0.6, min(1.0, float(self.var_alpha.get()) / 100.0))
         except (tk.TclError, ValueError):
-            self.settings.overlay_alpha = 0.92
+            self.settings.overlay_alpha = 0.95
+        try:
+            self.settings.overlay_backdrop = max(0.0, min(0.9, float(self.var_backdrop.get()) / 100.0))
+        except (tk.TclError, ValueError):
+            self.settings.overlay_backdrop = 0.45
         for text, value in _ANCHORS:
             if text == self.var_anchor.get():
                 self.settings.overlay_anchor = value
                 break
+
+    def _show_alpha(self) -> None:
+        self.lbl_alpha.configure(text=f"{self.settings.overlay_alpha * 100:.0f}%")
+        self.lbl_backdrop.configure(text=f"{self.settings.overlay_backdrop * 100:.0f}%")
 
     @staticmethod
     def _anchor_label(anchor: str) -> str:
@@ -362,11 +386,12 @@ class SettingsPage(tk.Frame):
     def _on_overlay_option(self) -> None:
         """改了悬浮窗选项：当场在悬浮窗上看效果，点「保存设置」才落盘。"""
         self._collect_overlay()
-        self.lbl_alpha.configure(text=f"{self.settings.overlay_alpha * 100:.0f}%")
+        self._show_alpha()
         self.app.overlay.apply_settings(self.settings)
         # 滑块在程序改它的值时也会回调，所以要和已保存的设置比一下，真变了才提示
         fields = ("overlay_in_auto", "overlay_keyboard", "guide_wait", "guide_speed",
-                  "overlay_lookahead", "overlay_scale", "overlay_alpha", "overlay_anchor")
+                  "overlay_lookahead", "overlay_scale", "overlay_alpha", "overlay_backdrop",
+                  "overlay_anchor")
         if any(getattr(self.settings, f) != getattr(self.app.settings, f) for f in fields):
             self.lbl_status.configure(text="悬浮窗设置已改动，记得点「保存设置」")
 
@@ -404,10 +429,9 @@ class SettingsPage(tk.Frame):
         row.pack(fill=tk.X)
         make_label(row, "曲库地址").pack(side=tk.LEFT, padx=(0, 8))
         self.var_online_base = tk.StringVar(value=self.settings.online_library_base or DEFAULT_BASE)
-        tk.Entry(row, textvariable=self.var_online_base, width=70, bg=Palette["entry_bg"],
-                 fg=Palette["text"], insertbackground=Palette["text"], relief=tk.FLAT,
-                 highlightthickness=1, highlightbackground=Palette["border"],
-                 highlightcolor=Palette["accent"], font=("Consolas", 9)).pack(side=tk.LEFT, ipady=3)
+        box = SearchEntry(row, self.var_online_base, width=64, search_icon=False)
+        box.entry.configure(font=mono_font(9))
+        box.pack(side=tk.LEFT)
         make_button(row, "恢复默认", lambda: self.var_online_base.set(DEFAULT_BASE),
                     kind="ghost").pack(side=tk.LEFT, padx=8)
         make_label(body, "曲库搬家时把新地址填在这里（地址末尾一般是 /harmonica）；改完点「保存设置」，"
@@ -430,7 +454,7 @@ class SettingsPage(tk.Frame):
 
     def _build_actions(self, parent) -> None:
         bar = tk.Frame(parent, bg=Palette["bg"])
-        bar.pack(fill=tk.X, padx=16, pady=(20, 4))
+        bar.pack(fill=tk.X, padx=(px(28), px(22)), pady=(px(20), px(4)))
 
         make_button(bar, "恢复全部默认设置", self._reset_all, kind="ghost").pack(side=tk.LEFT)
         make_button(bar, "查看使用须知", self._show_disclaimer, kind="ghost").pack(side=tk.LEFT, padx=8)
@@ -440,16 +464,15 @@ class SettingsPage(tk.Frame):
         self.lbl_status = make_label(bar, "", dim=True, bg=Palette["bg"])
         self.lbl_status.pack(side=tk.RIGHT, padx=16)
 
-        # 右下角常驻的一句提醒
-        notice = tk.Frame(parent, bg="#2b1417", highlightthickness=1,
-                          highlightbackground="#5a3038")
-        notice.pack(fill=tk.X, padx=16, pady=(4, 22))
+        # 最下面常驻的一句提醒
+        notice = RoundedPanel(parent, fill=Palette["danger_soft"], outline=None, radius=10, padx=14, pady=10)
+        notice.pack(fill=tk.X, padx=(px(28), px(22)), pady=(px(6), px(24)))
         tk.Label(
-            notice,
+            notice.body,
             text="仅供个人学习、技术研究与娱乐使用　·　严禁在任何在线对局中使用　·　"
                  "后果自负，作者不承担任何责任",
-            bg="#2b1417", fg="#e8a2ab", font=("Microsoft YaHei UI", 9),
-            wraplength=900, justify=tk.LEFT, padx=14, pady=9,
+            bg=Palette["danger_soft"], fg=Palette["danger"], font=ui_font(9),
+            wraplength=px(900), justify=tk.LEFT, anchor="w",
         ).pack(anchor="w", fill=tk.X)
 
     def _show_disclaimer(self) -> None:
@@ -554,11 +577,13 @@ class SettingsPage(tk.Frame):
         self.var_lookahead.set(_label_for(_LOOKAHEADS, self.settings.overlay_lookahead))
         self.var_scale.set(_label_for(_SCALES, self.settings.overlay_scale))
         self.var_alpha.set(round(self.settings.overlay_alpha * 100))
+        self.var_backdrop.set(round(self.settings.overlay_backdrop * 100))
+        self.seg_appearance.set(self.settings.appearance)
         self.var_anchor.set(self._anchor_label(self.settings.overlay_anchor))
         self.var_legato.set(self.settings.legato)
         from kouqin.online import DEFAULT_BASE
         self.var_online_base.set(self.settings.online_library_base or DEFAULT_BASE)
-        self.lbl_alpha.configure(text=f"{self.settings.overlay_alpha * 100:.0f}%")
+        self._show_alpha()
         self._check_keys()
         self._on_mod_changed()
 
@@ -585,7 +610,10 @@ class SettingsPage(tk.Frame):
         duplicates = sorted({k for k in keys if keys.count(k) > 1})
         for index, button in enumerate(self.key_buttons):
             conflict = keys[index] in duplicates
-            button.configure(highlightbackground=Palette["danger"] if conflict else Palette["border"])
+            if conflict:
+                button.configure(colors=(Palette["danger_soft"], Palette["danger"], Palette["danger"]))
+            else:
+                button.configure(colors=(Palette["panel_alt"], Palette["border_strong"], Palette["text"]))
 
     def _reset_keys(self) -> None:
         from kouqin.layout import BASE_KEYS
@@ -639,6 +667,7 @@ class SettingsPage(tk.Frame):
             self.settings.default_bpm = 90.0
 
         self._collect_overlay()
+        self.settings.appearance = self.seg_appearance.value or "system"
         self.settings.legato = bool(self.var_legato.get())
         from kouqin.online import DEFAULT_BASE
         base = self.var_online_base.get().strip().rstrip("/")
@@ -656,9 +685,13 @@ class SettingsPage(tk.Frame):
             messagebox.showerror("设置有冲突", "\n".join(problems), parent=self.app)
             return
 
+        restart = self.settings.appearance != self.app.settings.appearance
         self.app.apply_settings(self.settings)
         self.lbl_status.configure(text="✔ 已保存")
         self.app.log("设置已保存")
+        if restart:
+            # 换外观要把整个界面按新配色重建一遍
+            self.app.after(50, self.app.restart)
 
     def on_show(self) -> None:
         """切到本页时刷新一次，保证显示的是最新设置。"""

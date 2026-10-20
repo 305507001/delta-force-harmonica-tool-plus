@@ -59,7 +59,7 @@ SOURCE_URL = "https://github.com/Dr-hydra/Delta-Force-Harmonica"
 #: 目录多久刷新一次（秒）。曲库更新不频繁，没必要每次打开都去拉
 CATALOG_TTL = 3600
 
-_USER_AGENT = "KouqinStudio/2.5 (+https://github.com/305507001/delta-force-harmonica-tool-plus)"
+_USER_AGENT = "KouqinStudio/2.6 (+https://github.com/305507001/delta-force-harmonica-tool-plus)"
 _JSONP = re.compile(r'^\s*__dfh\(\s*"((?:[^"\\]|\\.)*)"\s*,\s*(.*?)\s*\)\s*;?\s*$', re.S)
 _ID = re.compile(r"^[A-Za-z0-9_-]{6,32}$")
 

@@ -97,7 +97,7 @@ class GuideDialog(tk.Toplevel):
                            highlightbackground=Palette["border"])
             row.pack(fill=tk.X, pady=(0, 8))
 
-            badge = tk.Label(row, text=number, bg=Palette["accent"], fg="#06231a",
+            badge = tk.Label(row, text=number, bg=Palette["accent"], fg=Palette["on_accent"],
                              font=("Microsoft YaHei UI", 13, "bold"), width=3, pady=6)
             badge.pack(side=tk.LEFT, padx=(12, 12), pady=11)
 
@@ -110,17 +110,17 @@ class GuideDialog(tk.Toplevel):
                      wraplength=430).pack(anchor="w", pady=(3, 0))
 
         # ---- 出问题怎么办 ----
-        trouble = tk.Frame(root, bg="#241d13", highlightthickness=1,
-                           highlightbackground="#5a4a2a")
+        trouble = tk.Frame(root, bg=Palette["warn_soft"], highlightthickness=1,
+                           highlightbackground=Palette["warn_soft"])
         trouble.pack(fill=tk.X, pady=(14, 0))
-        inner = tk.Frame(trouble, bg="#241d13", padx=16, pady=12)
+        inner = tk.Frame(trouble, bg=Palette["warn_soft"], padx=16, pady=12)
         inner.pack(fill=tk.X)
 
-        tk.Label(inner, text="游戏里没反应？按顺序检查这几条", bg="#241d13",
+        tk.Label(inner, text="游戏里没反应？按顺序检查这几条", bg=Palette["warn_soft"],
                  fg=Palette["warn"], font=("Microsoft YaHei UI", 10, "bold"),
                  anchor="w").pack(anchor="w", pady=(0, 7))
         for item in TROUBLES:
-            tk.Label(inner, text="· " + item, bg="#241d13", fg="#c9b895",
+            tk.Label(inner, text="· " + item, bg=Palette["warn_soft"], fg=Palette["text"],
                      font=("Microsoft YaHei UI", 9), anchor="w", justify=tk.LEFT,
                      wraplength=530).pack(anchor="w", pady=1)
 
@@ -139,12 +139,12 @@ class GuideDialog(tk.Toplevel):
                      wraplength=460).pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         # ---- 免责 + 按钮 ----
-        notice = tk.Frame(root, bg="#2b1417", highlightthickness=1,
-                          highlightbackground="#5a3038")
+        notice = tk.Frame(root, bg=Palette["danger_soft"], highlightthickness=1,
+                          highlightbackground=Palette["danger_soft"])
         notice.pack(fill=tk.X, pady=(16, 0))
         tk.Label(notice,
                  text="仅供个人学习、技术研究与娱乐使用　·　严禁在任何在线对局中使用　·　后果自负",
-                 bg="#2b1417", fg="#e8a2ab", font=("Microsoft YaHei UI", 9),
+                 bg=Palette["danger_soft"], fg=Palette["danger"], font=("Microsoft YaHei UI", 9),
                  padx=14, pady=8).pack(anchor="w", fill=tk.X)
 
         make_button(root, "知道了，开始玩", self.destroy, kind="accent",

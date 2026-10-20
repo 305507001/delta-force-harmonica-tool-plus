@@ -18,15 +18,17 @@ from tkinter import messagebox, simpledialog
 from typing import Callable, List, Optional
 
 from kouqin.tune import (
-    OCTAVE_COLORS,
     OCTAVE_LABELS,
     REST,
     Tune,
     Cell,
 )
 
+from tkinter import ttk
+
 from .cell_picker import CellPicker
-from .theme import Palette, make_button, make_combobox, make_label
+from .theme import Palette, make_button, make_combobox, make_label, octave_colors, px, title_font, ui_font
+from .widgets import SearchEntry, Segmented, paint_rounded
 
 # 画布尺寸参数
 CELL_W = 58
@@ -71,47 +73,36 @@ class ComposerPage(tk.Frame):
         self._build_footer()
 
     def _build_header(self) -> None:
-        bar = tk.Frame(self, bg=Palette["panel"], height=52)
-        bar.grid(row=0, column=0, sticky="ew")
-        bar.grid_propagate(False)
+        P = Palette
+        head = tk.Frame(self, bg=P["bg"])
+        head.grid(row=0, column=0, sticky="ew", padx=px(28), pady=(px(24), px(12)))
+        top = tk.Frame(head, bg=P["bg"])
+        top.pack(fill=tk.X)
+        tk.Label(top, text="谱曲", font=title_font(22), bg=P["bg"], fg=P["text"], anchor="w").pack(side=tk.LEFT)
+        self.lbl_hint = make_label(top, "", dim=True)
+        self.lbl_hint.pack(side=tk.RIGHT, anchor="s")
+        make_label(head, "点格子选音；想拖长就在后面填「— 延长」，同一个音连填两格会吹两下", dim=True,
+                   anchor="w").pack(fill=tk.X, pady=(px(4), px(12)))
 
-        make_label(bar, "曲名").pack(side=tk.LEFT, padx=(12, 6), pady=12)
+        bar = tk.Frame(head, bg=P["bg"])
+        bar.pack(fill=tk.X)
+        make_label(bar, "曲名").pack(side=tk.LEFT, padx=(0, px(8)))
         self.var_name = tk.StringVar(value=self.tune.name)
-        entry = tk.Entry(
-            bar, textvariable=self.var_name, width=18,
-            bg=Palette["entry_bg"], fg=Palette["text"], insertbackground=Palette["accent"],
-            relief=tk.FLAT, bd=0, font=("Microsoft YaHei UI", 10), highlightthickness=1,
-            highlightbackground=Palette["border"], highlightcolor=Palette["accent"],
-        )
-        entry.pack(side=tk.LEFT, pady=12, ipady=4)
+        name_box = SearchEntry(bar, self.var_name, width=18, search_icon=False)
+        name_box.pack(side=tk.LEFT)
         self.var_name.trace_add("write", lambda *_: self._on_name_change())
 
-        tk.Frame(bar, bg=Palette["border"], width=1).pack(side=tk.LEFT, fill=tk.Y, padx=12, pady=10)
+        make_label(bar, "速度").pack(side=tk.LEFT, padx=(px(20), px(8)))
+        self.seg_speed = Segmented(bar, [(str(bpm), label) for label, bpm in SPEED_CHOICES],
+                                   command=lambda key: self._set_bpm(float(key)), value=None, size=9)
+        self.seg_speed.pack(side=tk.LEFT)
+        self._speed_buttons = [(bpm, self.seg_speed.buttons[str(bpm)]) for _label, bpm in SPEED_CHOICES]
 
-        make_label(bar, "速度").pack(side=tk.LEFT, padx=(0, 6))
-        self._speed_buttons = []
-        for label, bpm in SPEED_CHOICES:
-            button = tk.Button(
-                bar, text=label, command=lambda b=bpm: self._set_bpm(b),
-                bg=Palette["panel_alt"], fg=Palette["text_dim"],
-                activebackground=Palette["border"], activeforeground=Palette["text"],
-                relief=tk.FLAT, bd=0, padx=9, pady=3, cursor="hand2",
-                font=("Microsoft YaHei UI", 9), highlightthickness=1,
-                highlightbackground=Palette["border"],
-            )
-            button.pack(side=tk.LEFT, padx=2)
-            self._speed_buttons.append((bpm, button))
-
-        tk.Frame(bar, bg=Palette["border"], width=1).pack(side=tk.LEFT, fill=tk.Y, padx=12, pady=10)
-
-        make_label(bar, "每小节").pack(side=tk.LEFT, padx=(0, 6))
+        make_label(bar, "每小节").pack(side=tk.LEFT, padx=(px(20), px(8)))
         self.var_beats = tk.StringVar(value=f"{self.tune.beats_per_bar} 拍")
         combo = make_combobox(bar, [f"{n} 拍" for n in BAR_CHOICES], self.var_beats, width=6)
-        combo.pack(side=tk.LEFT, pady=12)
+        combo.pack(side=tk.LEFT)
         combo.bind("<<ComboboxSelected>>", lambda e: self._set_beats())
-
-        self.lbl_hint = make_label(bar, "", dim=True)
-        self.lbl_hint.pack(side=tk.RIGHT, padx=12)
 
     def _build_canvas(self) -> None:
         wrap = tk.Frame(self, bg=Palette["bg"])
@@ -125,10 +116,8 @@ class ComposerPage(tk.Frame):
         )
         self.canvas.grid(row=0, column=0, sticky="nsew")
 
-        scroll = tk.Scrollbar(wrap, orient=tk.VERTICAL, command=self.canvas.yview,
-                              bg=Palette["panel_alt"], troughcolor=Palette["panel"],
-                              activebackground=Palette["border"], width=12)
-        scroll.grid(row=0, column=1, sticky="ns")
+        scroll = ttk.Scrollbar(wrap, orient=tk.VERTICAL, command=self.canvas.yview)
+        scroll.grid(row=0, column=1, sticky="ns", padx=(0, px(6)))
         self.canvas.configure(yscrollcommand=scroll.set)
 
         self.canvas.bind("<Button-1>", self._on_click)
@@ -136,18 +125,16 @@ class ComposerPage(tk.Frame):
         self.canvas.bind("<MouseWheel>", lambda e: self.canvas.yview_scroll(-1 if e.delta > 0 else 1, "units"))
 
     def _build_footer(self) -> None:
-        bar = tk.Frame(self, bg=Palette["panel_alt"])
-        bar.grid(row=2, column=0, sticky="ew")
+        bar = tk.Frame(self, bg=Palette["bg"])
+        bar.grid(row=2, column=0, sticky="ew", padx=px(28), pady=(px(10), px(14)))
 
-        make_button(bar, "+ 加一小节", lambda: self._add_bars(1)).pack(side=tk.LEFT, padx=(10, 4), pady=8)
-        make_button(bar, "- 减一小节", lambda: self._add_bars(-1), kind="ghost").pack(side=tk.LEFT, padx=4, pady=8)
-        make_button(bar, "清空", self._clear, kind="ghost").pack(side=tk.LEFT, padx=4, pady=8)
+        make_button(bar, "加一小节", lambda: self._add_bars(1), icon_name="add").pack(side=tk.LEFT)
+        make_button(bar, "减一小节", lambda: self._add_bars(-1), kind="ghost").pack(side=tk.LEFT, padx=(px(6), 0))
+        make_button(bar, "清空", self._clear, kind="ghost").pack(side=tk.LEFT, padx=(px(6), 0))
 
-        make_label(bar, text="", bg=Palette["panel_alt"]).pack(side=tk.LEFT, expand=True)
-
-        make_button(bar, "试听", self._preview, kind="ghost").pack(side=tk.RIGHT, padx=4, pady=8)
-        make_button(bar, "保存", self._save, kind="ghost").pack(side=tk.RIGHT, padx=4, pady=8)
-        make_button(bar, "保存并演奏", self._save_and_play, kind="accent").pack(side=tk.RIGHT, padx=(4, 10), pady=8)
+        make_button(bar, "保存并演奏", self._save_and_play, kind="accent").pack(side=tk.RIGHT, padx=(px(6), 0))
+        make_button(bar, "保存", self._save).pack(side=tk.RIGHT, padx=(px(6), 0))
+        make_button(bar, "试听", self._preview, kind="ghost", icon_name="play").pack(side=tk.RIGHT)
 
     # ================================================================== #
     # 绘制
@@ -192,11 +179,11 @@ class ComposerPage(tk.Frame):
         bar_w, inner = self._bar_geometry(beats)
 
         # 小节外框
-        canvas.create_rectangle(x0, y0, x0 + bar_w, y0 + CELL_H + 12,
-                                fill=Palette["panel"], outline=Palette["border"], width=1)
+        paint_rounded(canvas, int(x0), int(y0), int(x0 + bar_w), int(y0 + CELL_H + 12), 10,
+                      Palette["panel"], Palette["border"], Palette["bg"])
         canvas.create_text(x0 + BAR_HEAD / 2, y0 + (CELL_H + 12) / 2,
-                           text=str(bar_index + 1), fill=Palette["text_dim"],
-                           font=("Consolas", 10, "bold"))
+                           text=str(bar_index + 1), fill=Palette["text_muted"],
+                           font=ui_font(10, True))
 
         first = bar_index * beats
         for offset, cell in enumerate(bar_cells):
@@ -218,45 +205,53 @@ class ComposerPage(tk.Frame):
             return
 
         if cell.is_rest:
-            fill, fg = Palette["panel_alt"], "#4d5866"
-            outline = Palette["sel"] if selected else Palette["border"]
-            canvas.create_rectangle(x1, y1, x2, y2, fill=fill, outline=outline,
-                                    width=2 if selected else 1)
-            canvas.create_text((x1 + x2) / 2, (y1 + y2) / 2, text="·",
-                               fill=fg, font=("Consolas", 22, "bold"))
+            fill, fg = Palette["panel_alt"], Palette["text_muted"]
+            self._cell_box(x1, y1, x2, y2, fill, Palette["border"], selected)
+            canvas.create_text((x1 + x2) / 2, (y1 + y2) / 2 - 4, text="·",
+                               fill=fg, font=ui_font(22, True))
             canvas.create_text((x1 + x2) / 2, y2 - 11, text="休止",
-                               fill="#3f4a58", font=("Microsoft YaHei UI", 8))
+                               fill=fg, font=ui_font(8))
             self._hits.append((index, x1, y1, x2, y2))
             return
 
-        bg, accent = OCTAVE_COLORS.get(cell.octave, OCTAVE_COLORS[0])
-        outline = Palette["sel"] if selected else accent
-        canvas.create_rectangle(x1, y1, x2, y2, fill=bg, outline=outline,
-                                width=2 if selected else 1)
+        colors = octave_colors()
+        bg, accent = colors.get(cell.octave, colors[0])
+        self._cell_box(x1, y1, x2, y2, bg, None, selected)
 
         # 数字：主角，放最大
         canvas.create_text((x1 + x2) / 2, y1 + 22, text=cell.digit,
-                           fill=accent, font=("Microsoft YaHei UI", 19, "bold"))
+                           fill=accent, font=ui_font(19, True))
         # 唱名
         canvas.create_text((x1 + x2) / 2, y1 + 43, text=cell.solfa,
-                           fill=accent, font=("Consolas", 9))
+                           fill=accent, font=ui_font(8))
 
         # 实际按键（最关键的信息，放右下角）
         combo = self.app.layout.resolve(cell.pitch)
         if combo:
             canvas.create_text(x2 - 5, y2 - 9, anchor="se", text=combo.tokens(),
-                               fill=accent, font=("Consolas", 8, "bold"))
+                               fill=accent, font=ui_font(8, True))
         else:
             canvas.create_text(x2 - 5, y2 - 9, anchor="se", text="超范围",
-                               fill="#e06060", font=("Microsoft YaHei UI", 7))
+                               fill=Palette["danger"], font=ui_font(7))
 
         # 八度小标记（低音/高音才有）
         if cell.octave != 0:
-            canvas.create_text(x1 + 5, y1 + 9, anchor="nw",
+            canvas.create_text(x1 + 6, y1 + 8, anchor="nw",
                                text=OCTAVE_LABELS[cell.octave][0],
-                               fill=accent, font=("Microsoft YaHei UI", 8, "bold"))
+                               fill=accent, font=ui_font(8, True))
 
         self._hits.append((index, x1, y1, x2, y2))
+
+    def _cell_box(self, x1: float, y1: float, x2: float, y2: float, fill: str,
+                  outline: Optional[str], selected: bool) -> None:
+        """格子底板：圆角；选中时外面多一圈 2 像素的蓝边。"""
+        x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+        surface = Palette["panel"]
+        if selected:
+            paint_rounded(self.canvas, x1 - 2, y1 - 2, x2 + 2, y2 + 2, 9, Palette["sel"], None, surface)
+            paint_rounded(self.canvas, x1, y1, x2, y2, 7, fill, outline, Palette["sel"])
+        else:
+            paint_rounded(self.canvas, x1, y1, x2, y2, 7, fill, outline, surface)
 
     def _held_note(self, index: int) -> Optional[Cell]:
         """「延长」格子接的是哪个音（往前找到第一个音；中间碰到休止就没有）。"""
@@ -272,19 +267,18 @@ class ComposerPage(tk.Frame):
         """「延长」格子：用被延长那个音的颜色画一道横杠，一眼看出是谁拖长了。"""
         canvas = self.canvas
         note = self._held_note(index)
+        colors = octave_colors()
         if note is None:
             # 前面没有音可接：吹不出声，按休止的样子画、但标出来
-            bg, accent = Palette["panel_alt"], "#6b5a3a"
+            bg, accent = Palette["panel_alt"], Palette["warn"]
         else:
-            bg, accent = OCTAVE_COLORS.get(note.octave, OCTAVE_COLORS[0])
-        outline = Palette["sel"] if selected else accent
-        canvas.create_rectangle(x1, y1, x2, y2, fill=bg, outline=outline,
-                                width=2 if selected else 1)
-        canvas.create_line(x1 + 8, (y1 + y2) / 2 - 6, x2 - 8, (y1 + y2) / 2 - 6,
-                           fill=accent, width=4)
+            bg, accent = colors.get(note.octave, colors[0])
+        self._cell_box(x1, y1, x2, y2, bg, None, selected)
+        canvas.create_line(x1 + 10, (y1 + y2) / 2 - 6, x2 - 10, (y1 + y2) / 2 - 6,
+                           fill=accent, width=4, capstyle=tk.ROUND)
         canvas.create_text((x1 + x2) / 2, y2 - 14,
                            text="延长" if note is not None else "延长（无音）",
-                           fill=accent, font=("Microsoft YaHei UI", 8))
+                           fill=accent, font=ui_font(8))
         self._hits.append((index, x1, y1, x2, y2))
 
     # ================================================================== #
@@ -370,13 +364,8 @@ class ComposerPage(tk.Frame):
         self._redraw()
 
     def _sync_controls(self) -> None:
-        for bpm, button in self._speed_buttons:
-            active = abs(bpm - self.tune.bpm) < 0.5
-            button.configure(
-                bg=Palette["accent_dark"] if active else Palette["panel_alt"],
-                fg="#ffffff" if active else Palette["text_dim"],
-                highlightbackground=Palette["accent"] if active else Palette["border"],
-            )
+        match = [bpm for bpm, _button in self._speed_buttons if abs(bpm - self.tune.bpm) < 0.5]
+        self.seg_speed.set(str(match[0]) if match else "")
         self.var_beats.set(f"{self.tune.beats_per_bar} 拍")
         self.var_name.set(self.tune.name)
 

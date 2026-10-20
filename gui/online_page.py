@@ -22,7 +22,8 @@ from kouqin.online import (
 )
 from kouqin.settings import DATA_DIR
 
-from .theme import Palette, make_button, make_label
+from .theme import Palette, make_button, make_label, px
+from .widgets import RoundedPanel, SearchEntry
 
 #: 表格列：(列名, 标题, 宽度, 是否随窗口拉伸)
 _COLUMNS = (
@@ -67,34 +68,33 @@ class OnlinePanel(tk.Frame):
     # ================================================================== #
 
     def _build(self) -> None:
+        P = Palette
+        gutter = px(28)
         self.grid_rowconfigure(1, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
-        top = tk.Frame(self, bg=Palette["bg"])
-        top.grid(row=0, column=0, sticky="ew", padx=12, pady=(10, 6))
-        make_label(top, "搜索", bg=Palette["bg"]).pack(side=tk.LEFT, padx=(2, 8))
+        top = tk.Frame(self, bg=P["bg"])
+        top.grid(row=0, column=0, sticky="ew", padx=gutter, pady=(0, px(12)))
         self.var_query = tk.StringVar()
-        entry = tk.Entry(top, textvariable=self.var_query, width=28, bg=Palette["entry_bg"],
-                         fg=Palette["text"], insertbackground=Palette["text"], relief=tk.FLAT,
-                         highlightthickness=1, highlightbackground=Palette["border"],
-                         highlightcolor=Palette["guide"], font=("Microsoft YaHei UI", 10))
-        entry.pack(side=tk.LEFT, ipady=4)
-        entry.bind("<KeyRelease>", lambda e: self._schedule_search())
-        make_label(top, "曲名 / 作曲 / 上传者 / 标签都能搜", dim=True, bg=Palette["bg"]).pack(side=tk.LEFT, padx=10)
-        make_button(top, "刷新目录", lambda: self.load(force=True), kind="ghost").pack(side=tk.RIGHT)
-        self.lbl_status = make_label(top, "", dim=True, bg=Palette["bg"])
-        self.lbl_status.pack(side=tk.RIGHT, padx=10)
+        search = SearchEntry(top, self.var_query, placeholder="曲名、作曲、上传者、标签都能搜", width=30)
+        search.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.var_query.trace_add("write", lambda *_: self._schedule_search())
+        make_button(top, "刷新目录", lambda: self.load(force=True), kind="ghost",
+                    icon_name="refresh").pack(side=tk.RIGHT, padx=(px(6), 0))
+        self.lbl_status = make_label(top, "", dim=True)
+        self.lbl_status.pack(side=tk.RIGHT, padx=(px(12), 0))
 
-        table = tk.Frame(self, bg=Palette["bg"])
-        table.grid(row=1, column=0, sticky="nsew", padx=12)
+        card = RoundedPanel(self, fill=P["panel"], radius=12, padx=6, pady=6, fit=False)
+        card.grid(row=1, column=0, sticky="nsew", padx=(gutter, gutter - px(6)))
+        table = card.body
         table.grid_rowconfigure(0, weight=1)
         table.grid_columnconfigure(0, weight=1)
         self.tree = ttk.Treeview(table, columns=[c[0] for c in _COLUMNS], show="headings",
                                  selectmode="browse")
         for key, title, width, stretch in _COLUMNS:
-            self.tree.heading(key, text=title)
+            self.tree.heading(key, text=title, anchor="w" if key in ("title", "composer", "uploader") else "center")
             anchor = "w" if key in ("title", "composer", "uploader") else "center"
-            self.tree.column(key, width=width, minwidth=40, stretch=stretch, anchor=anchor)
+            self.tree.column(key, width=px(width), minwidth=px(40), stretch=stretch, anchor=anchor)
         self.tree.grid(row=0, column=0, sticky="nsew")
         scroll = ttk.Scrollbar(table, orient=tk.VERTICAL, command=self.tree.yview)
         scroll.grid(row=0, column=1, sticky="ns")
@@ -103,22 +103,23 @@ class OnlinePanel(tk.Frame):
         self.tree.bind("<Double-1>", lambda e: self.play_selected("guide"))
         self.tree.bind("<Return>", lambda e: self.play_selected("guide"))
 
-        bottom = tk.Frame(self, bg=Palette["bg"])
-        bottom.grid(row=2, column=0, sticky="ew", padx=12, pady=(8, 10))
-        self.btn_guide = make_button(bottom, "跟弹", lambda: self.play_selected("guide"),
-                                     kind="guide", width=8)
-        self.btn_guide.pack(side=tk.LEFT)
-        self.btn_auto = make_button(bottom, "演奏", lambda: self.play_selected("auto"),
-                                    kind="accent", width=8)
-        self.btn_auto.pack(side=tk.LEFT, padx=(8, 0))
-        self.btn_save = make_button(bottom, "存到我的曲库", self.save_selected, kind="normal")
-        self.btn_save.pack(side=tk.LEFT, padx=(8, 0))
-        self.lbl_selected = make_label(bottom, "双击一首曲子直接跟弹", dim=True, bg=Palette["bg"])
-        self.lbl_selected.pack(side=tk.LEFT, padx=12)
-        make_button(bottom, "曲库项目主页", lambda: webbrowser.open(SOURCE_URL),
-                    kind="ghost").pack(side=tk.RIGHT)
-        make_label(bottom, f"曲谱来自 {SOURCE_NAME}，由玩家上传，版权归原作者 · 本程序只读",
-                   dim=True, bg=Palette["bg"]).pack(side=tk.RIGHT, padx=10)
+        bottom = tk.Frame(self, bg=P["bg"])
+        bottom.grid(row=2, column=0, sticky="ew", padx=gutter, pady=(px(10), 0))
+        self.btn_auto = make_button(bottom, "演奏", lambda: self.play_selected("auto"), kind="accent")
+        self.btn_auto.pack(side=tk.RIGHT, padx=(px(6), 0))
+        self.btn_guide = make_button(bottom, "跟弹", lambda: self.play_selected("guide"), kind="guide")
+        self.btn_guide.pack(side=tk.RIGHT, padx=(px(6), 0))
+        self.btn_save = make_button(bottom, "存到我的曲库", self.save_selected, icon_name="download")
+        self.btn_save.pack(side=tk.RIGHT)
+        self.lbl_selected = make_label(bottom, "双击一首曲子直接跟弹", dim=True, anchor="w")
+        self.lbl_selected.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        foot = tk.Frame(self, bg=P["bg"])
+        foot.grid(row=3, column=0, sticky="ew", padx=gutter, pady=(px(6), 0))
+        make_label(foot, f"曲谱来自 {SOURCE_NAME}，由玩家上传，版权归原作者 · 本程序只读",
+                   size=8, fg=P["text_muted"]).pack(side=tk.LEFT)
+        make_button(foot, "曲库项目主页", lambda: webbrowser.open(SOURCE_URL), kind="ghost",
+                    icon_name="link", height=24, size=8, padx=8).pack(side=tk.LEFT, padx=(px(6), 0))
         self._set_buttons(False)
 
     def _set_buttons(self, enabled: bool) -> None:
@@ -233,7 +234,7 @@ class OnlinePanel(tk.Frame):
             return
         saved = self._saved_name(entry.id)
         if saved:
-            self.lbl_selected.configure(text=f"《{saved}》已经在我的曲库里了", fg=Palette["accent"])
+            self.lbl_selected.configure(text=f"《{saved}》已经在我的曲库里了", fg=Palette["success"])
             return
         self._download(self._save)
 
@@ -259,7 +260,7 @@ class OnlinePanel(tk.Frame):
             self.lbl_selected.configure(text=f"⚠ 保存失败：{exc}", fg=Palette["warn"])
             return
         self.app.refresh_library()
-        self.lbl_selected.configure(text=f"✔ 已存进我的曲库：《{tune.name}》", fg=Palette["accent"])
+        self.lbl_selected.configure(text=f"✔ 已存进我的曲库：《{tune.name}》", fg=Palette["success"])
         self.app.log(f"已把在线曲库《{info.title}》存进我的曲库：{len(notes)} 个音，原样保存"
                      f"（上传者 {info.uploader}；不联网也能点播、跟弹）")
 

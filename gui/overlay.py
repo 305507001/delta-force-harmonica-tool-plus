@@ -43,7 +43,7 @@ from kouqin.layout import Combo, Layout, MouseMod
 from kouqin.practice import Judge, Mark, Verdict
 from kouqin.tune import OCTAVE_COLORS, STEP_DIGITS
 
-from .theme import Palette, blend
+from .theme import blend
 
 __all__ = ["OverlayController", "OverlayWindow", "Frame", "LongPressDrag"]
 
@@ -54,26 +54,37 @@ __all__ = ["OverlayController", "OverlayWindow", "Frame", "LongPressDrag"]
 #: 透明色键：画布上用这个颜色的地方会被整个挖空（Windows）。画任何东西都不要用它。
 TRANSPARENT = "#010203"
 
-PANEL_BG = "#12161d"
-LANE_BG = "#191e28"
-PAST_BG = "#232a35"
-CAP_BG = "#1a2029"
-DARK_TEXT = "#0b0e13"
+#: 悬浮窗自己的配色：它叠在游戏画面上，不管主界面是浅色还是深色，这里永远是深色（暖灰 + 陶土色）
+OV = {
+    "border": "#4a4945",
+    "text": "#f5f4ef",
+    "text_dim": "#b4b2a9",
+    "accent": "#d97757",      # 自动演奏
+    "guide": "#6ea8e8",       # 跟弹
+    "warn": "#e0a04a",
+    "danger": "#e8776f",
+}
 
-#: 按"这个鼠标键负责什么"给音符上色（和谱曲页的八度配色一致）
+PANEL_BG = "#262624"          # 底板（在底板窗口里，按「背景透明度」变透明）
+LANE_BG = "#30302e"           # 轨道
+PAST_BG = "#3d3c39"           # 走过去的音
+CAP_BG = "#2c2c2a"            # 键帽 / 音符自带的小底板（在内容窗口里，跟「提示不透明度」走）
+DARK_TEXT = "#1a1918"
+
+#: 按"这个鼠标键负责什么"给音符上色：(暗色, 亮色)。不用鼠标的是米白，一眼看出"直接按"
 GROUP_COLORS: Dict[str, Tuple[str, str]] = {
-    "mid": OCTAVE_COLORS[0],     # 绿：不用鼠标
-    "down": OCTAVE_COLORS[-1],   # 蓝：降八度
-    "up": OCTAVE_COLORS[1],      # 橙：升八度
-    "sharp": OCTAVE_COLORS[2],   # 紫：升半音
+    "mid": ("#3a3936", "#f1efe8"),   # 米白：不用鼠标
+    "down": OCTAVE_COLORS[-1],       # 蓝：降八度
+    "up": OCTAVE_COLORS[1],          # 橙：升八度
+    "sharp": OCTAVE_COLORS[2],       # 紫：升半音
 }
 
 #: 判定提示的颜色
 VERDICT_COLORS = {
-    Mark.PERFECT: Palette["accent"],
+    Mark.PERFECT: OV["accent"],
     Mark.GOOD: "#9be37d",
-    "wrong": Palette["danger"],
-    Mark.MISS: Palette["text_dim"],
+    "wrong": OV["danger"],
+    Mark.MISS: OV["text_dim"],
 }
 
 _FONT_UI = "Microsoft YaHei UI"
@@ -359,9 +370,125 @@ class LongPressDrag:
         return ("move", nx, ny)
 
 
+def _hwnd_of(window: tk.Misc) -> Optional[int]:
+    if not _IS_WIN:
+        return None
+    hwnd = 0
+    try:
+        frame = window.wm_frame()
+        hwnd = int(frame, 16) if frame else 0
+    except (tk.TclError, ValueError):
+        hwnd = 0
+    if not hwnd:
+        hwnd = _user32.GetParent(window.winfo_id()) or 0
+    return hwnd or None
+
+
+def _set_ex_style(window: tk.Misc, click_through: bool) -> None:
+    """
+    设置扩展窗口样式：
+
+        TOOLWINDOW   不出现在任务栏和 Alt+Tab 里
+        NOACTIVATE   永远不抢焦点（点它也不会把游戏切到后台）
+        TRANSPARENT  鼠标点击直接穿透到下面的游戏
+    """
+    hwnd = _hwnd_of(window)
+    if not hwnd:
+        return
+    style = _user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+    style |= WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE
+    # 点击穿透需要分层窗口；分层是 Tk 设置 -alpha / -transparentcolor 时打开的，
+    # 这里不自己加——没调过 SetLayeredWindowAttributes 的分层窗口是看不见的
+    if click_through and style & WS_EX_LAYERED:
+        style |= WS_EX_TRANSPARENT
+    else:
+        style &= ~WS_EX_TRANSPARENT
+    _user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
+    _user32.SetWindowPos(hwnd, None, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED)
+
+
+def _topmost(window: tk.Misc) -> None:
+    hwnd = _hwnd_of(window)
+    if hwnd:
+        _user32.SetWindowPos(hwnd, ctypes.c_void_p(HWND_TOPMOST), 0, 0, 0, 0,
+                             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER)
+    else:
+        try:
+            window.attributes("-topmost", True)
+        except tk.TclError:
+            pass
+
+
+def _paint_backdrop(canvas: tk.Canvas, g: "_Geometry", tags=("backdrop",)) -> None:
+    """底板：圆角面板 + 轨道 + 鼠标区分隔线 + 进度条的槽。"""
+    px = g.px
+    _round_rect(canvas, 1, 1, g.w - 2, g.h - 2, px(14), fill=PANEL_BG, outline=OV["border"], width=1,
+                tags=tags)
+    _round_rect(canvas, g.pad, g.lane_top, g.lane_right, g.lane_bottom, px(10), fill=LANE_BG,
+                outline="", tags=tags)
+    canvas.create_line(g.zone_right, g.lane_top + px(10), g.zone_right, g.lane_bottom - px(10),
+                       fill=OV["border"], tags=tags)
+    canvas.create_rectangle(g.line_x, g.lane_bottom - px(6), g.lane_right - px(10),
+                            g.lane_bottom - px(2), fill=PAST_BG, outline="", tags=tags)
+
+
+class _Backdrop(tk.Toplevel):
+    """
+    悬浮窗的底板，单独一个窗口，垫在内容窗口正下方。
+
+    Tk 的透明度只能整个窗口一起调：底板想透明、音符和字又想看得清，就只能拆成两个窗口——
+    底板按「背景透明度」变透明，上面的内容窗口按「提示不透明度」。两个窗口一起挪、
+    一起置顶，平时都是点击穿透、不抢焦点；调整位置时底板也能拖。
+    """
+
+    def __init__(self, master, owner: "OverlayWindow") -> None:
+        super().__init__(master)
+        self.withdraw()
+        self.overrideredirect(True)
+        self.configure(bg=TRANSPARENT)
+        self.title("口琴工坊 · 跟弹提示底板")
+        self.canvas = tk.Canvas(self, bg=TRANSPARENT, highlightthickness=0, bd=0)
+        self.canvas.pack(fill=tk.BOTH, expand=True)
+        self.canvas.bind("<ButtonPress-1>", owner._drag_start)
+        self.canvas.bind("<B1-Motion>", owner._drag_move)
+        self.canvas.bind("<ButtonRelease-1>", owner._drag_end)
+        self.canvas.bind("<Double-Button-1>", lambda e: owner._on_lock())
+        self._alpha = 0.55
+        self._visible = False
+        for name, value in (("-topmost", True), ("-alpha", 0.0), ("-transparentcolor", TRANSPARENT)):
+            try:
+                self.attributes(name, value)
+            except tk.TclError:
+                pass
+
+    def draw(self, g: "_Geometry") -> None:
+        self.canvas.delete("all")
+        self.canvas.configure(width=g.w, height=g.h)
+        _paint_backdrop(self.canvas, g)
+
+    def set_alpha(self, alpha: float) -> None:
+        self._alpha = max(0.08, min(1.0, alpha))
+        if self._visible:
+            self._apply_alpha()
+
+    def show(self, visible: bool) -> None:
+        self._visible = visible
+        self._apply_alpha()
+
+    def _apply_alpha(self) -> None:
+        try:
+            self.attributes("-alpha", self._alpha if self._visible else 0.0)
+        except tk.TclError:
+            pass
+
+
 class OverlayWindow(tk.Toplevel):
     """
     悬浮窗本体：只负责窗口属性（置顶 / 穿透 / 拖动）和照着 :class:`Frame` 画图。
+
+    Windows 上分两层：底板在 :class:`_Backdrop` 里（按「背景透明度」变透明），
+    这个窗口只画音符、键帽和文字，背景是全透明的色键。别的系统没有色键，就一个窗口画全部。
 
     **一旦建好就不再隐藏 / 显示窗口**：不需要显示时把画布清空，透明色键会让整个窗口
     "消失"。这样游戏在前台时永远不会因为本窗口弹出而被抢走焦点。
@@ -369,6 +496,8 @@ class OverlayWindow(tk.Toplevel):
 
     def __init__(self, master, on_moved: Callable[[int, int], None],
                  on_lock: Callable[[], None]) -> None:
+        # 底板先建：后建的窗口在上面
+        self._backdrop: Optional[_Backdrop] = _Backdrop(master, self) if _IS_WIN else None
         super().__init__(master)
         self.withdraw()
         self.overrideredirect(True)
@@ -379,7 +508,7 @@ class OverlayWindow(tk.Toplevel):
         self._on_lock = on_lock
         self._scale = 1.0
         self._keyboard = True
-        self._alpha = 0.92
+        self._alpha = 0.95
         self._lookahead_ms = 3000.0
         self._locked = True
         self._layout: Optional[Layout] = None
@@ -416,10 +545,25 @@ class OverlayWindow(tk.Toplevel):
 
         self._build_static()
         self.place_at(None, None)
+        if self._backdrop is not None:
+            self._backdrop.deiconify()
         self.deiconify()
         self.update_idletasks()
         self._apply_ex_style()
         self._show(False)
+
+    @property
+    def _split(self) -> bool:
+        return self._backdrop is not None
+
+    def destroy(self) -> None:
+        if self._backdrop is not None:
+            try:
+                self._backdrop.destroy()
+            except tk.TclError:
+                pass
+            self._backdrop = None
+        super().destroy()
 
     def _show(self, visible: bool) -> None:
         """
@@ -437,69 +581,48 @@ class OverlayWindow(tk.Toplevel):
             self.attributes("-alpha", self._alpha if visible else 0.0)
         except tk.TclError:
             pass
+        if self._backdrop is not None:
+            self._backdrop.show(visible)
 
     # ------------------------------------------------------------------ #
     # 窗口属性
     # ------------------------------------------------------------------ #
 
     def _hwnd(self) -> Optional[int]:
-        if not _IS_WIN:
-            return None
-        hwnd = 0
-        try:
-            frame = self.wm_frame()
-            hwnd = int(frame, 16) if frame else 0
-        except (tk.TclError, ValueError):
-            hwnd = 0
-        if not hwnd:
-            hwnd = _user32.GetParent(self.winfo_id()) or 0
-        return hwnd or None
+        return _hwnd_of(self)
 
     def _apply_ex_style(self) -> None:
-        """
-        设置扩展窗口样式：
-
-            TOOLWINDOW   不出现在任务栏和 Alt+Tab 里
-            NOACTIVATE   永远不抢焦点（点它也不会把游戏切到后台）
-            TRANSPARENT  锁定时鼠标点击直接穿透到下面的游戏
-        """
-        hwnd = self._hwnd()
-        if not hwnd:
-            return
-        style = _user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-        style |= WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE
-        # 点击穿透需要分层窗口；分层是 Tk 设置 -alpha / -transparentcolor 时打开的，
-        # 这里不自己加——没调过 SetLayeredWindowAttributes 的分层窗口是看不见的
-        if self._locked and style & WS_EX_LAYERED:
-            style |= WS_EX_TRANSPARENT
-        else:
-            style &= ~WS_EX_TRANSPARENT
-        _user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
-        _user32.SetWindowPos(hwnd, None, 0, 0, 0, 0,
-                             SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED)
+        """锁定时两层都点击穿透；调整位置时都能拖（底板露出来的地方也算）。"""
+        _set_ex_style(self, self._locked)
+        if self._backdrop is not None:
+            _set_ex_style(self._backdrop, self._locked)
         self.keep_on_top()
 
     def keep_on_top(self) -> None:
         """
-        重新声明一次"置顶"。
+        重新声明一次"置顶"：先底板、后内容，保证内容在上。
 
         有些游戏自己也是置顶窗口，切回游戏后会盖住悬浮窗；控制器每隔两秒调一次。
         带 SWP_NOACTIVATE，不会抢焦点。
         """
-        hwnd = self._hwnd()
-        if hwnd:
-            _user32.SetWindowPos(hwnd, ctypes.c_void_p(HWND_TOPMOST), 0, 0, 0, 0,
-                                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER)
-        else:
-            try:
-                self.attributes("-topmost", True)
-            except tk.TclError:
-                pass
+        if self._backdrop is not None:
+            _topmost(self._backdrop)
+        _topmost(self)
+
+    def _move_to(self, x: int, y: int, size: bool = False) -> None:
+        """两层一起挪（Tk 的几何串里负坐标要写成 "+-100"）。"""
+        g = self.geo
+        spec = f"{g.w}x{g.h}+{int(x)}+{int(y)}" if size else f"+{int(x)}+{int(y)}"
+        self.geometry(spec)
+        if self._backdrop is not None:
+            self._backdrop.geometry(f"{g.w}x{g.h}+{int(x)}+{int(y)}")
 
     def set_locked(self, locked: bool) -> None:
         """锁定 = 点击穿透、不能拖；解锁 = 可以用鼠标拖到想要的位置。"""
         self._locked = locked
         self.canvas.configure(cursor="" if locked else "fleur")
+        if self._backdrop is not None:
+            self._backdrop.canvas.configure(cursor="" if locked else "fleur")
         self._apply_ex_style()
 
     @property
@@ -507,11 +630,15 @@ class OverlayWindow(tk.Toplevel):
         return self._locked
 
     def apply_options(self, scale: float, alpha: float, lookahead_s: float, keyboard: bool,
-                      x: Optional[int], y: Optional[int], anchor: str = "upper") -> None:
+                      x: Optional[int], y: Optional[int], anchor: str = "upper",
+                      backdrop: float = 0.45) -> None:
+        """``alpha`` 是音符和文字的不透明度，``backdrop`` 是底板的透明度（0 不透明，0.9 几乎全透明）。"""
         if (scale, keyboard) != (self._scale, self._keyboard):
             self._scale, self._keyboard = scale, keyboard
             self.geo = _Geometry(scale * self._dpi, keyboard)
             self._build_static()
+        if self._backdrop is not None:
+            self._backdrop.set_alpha(1.0 - backdrop)
         self._alpha = alpha
         if self._visible:
             try:
@@ -533,8 +660,7 @@ class OverlayWindow(tk.Toplevel):
                 y = screen_h - g.h - int(screen_h * 0.06)
             else:
                 y = int(screen_h * ANCHOR_TOPS.get(anchor, ANCHOR_TOPS["upper"]))
-        # Tk 的几何串里 "-100" 表示"离右边 100"，负坐标要写成 "+-100"
-        self.geometry(f"{g.w}x{g.h}+{int(x)}+{int(y)}")
+        self._move_to(x, y, size=True)
 
     def _on_screen(self, x: int, y: int) -> bool:
         """保存的位置还在不在某块屏幕上（拔掉副屏后要能找回来）。"""
@@ -557,7 +683,7 @@ class OverlayWindow(tk.Toplevel):
         if not self._drag:
             return
         dx, dy = self._drag
-        self.geometry(f"+{event.x_root - dx}+{event.y_root - dy}")
+        self._move_to(event.x_root - dx, event.y_root - dy)
 
     def _drag_end(self, _event) -> None:
         if not self._drag:
@@ -599,7 +725,7 @@ class OverlayWindow(tk.Toplevel):
         if kind == "start":
             self._mark_drag(True)
             return
-        self.geometry(f"+{int(x)}+{int(y)}")
+        self._move_to(x, y)
         if kind == "move":
             self.canvas.tag_raise("dragmark")
             return
@@ -613,10 +739,10 @@ class OverlayWindow(tk.Toplevel):
             return
         g = self.geo
         width = max(2, round(2 * self._dpi))
-        self.canvas.create_rectangle(width, width, g.w - width, g.h - width, outline=Palette["guide"],
+        self.canvas.create_rectangle(width, width, g.w - width, g.h - width, outline=OV["guide"],
                                      width=width, tags="dragmark")
         self.canvas.create_text(g.w // 2, g.h - max(8, round(10 * self._dpi)), text="松开鼠标放下",
-                                fill=Palette["guide"], tags="dragmark",
+                                fill=OV["guide"], tags="dragmark",
                                 font=("Microsoft YaHei UI", max(8, round(8 * self._dpi)), "bold"))
 
     # ------------------------------------------------------------------ #
@@ -665,64 +791,63 @@ class OverlayWindow(tk.Toplevel):
         static = ("static",)
         cover = ("static", "cover")
 
-        _round_rect(c, 1, 1, g.w - 2, g.h - 2, px(14), fill=PANEL_BG,
-                    outline=Palette["border"], width=1, tags=static)
-        _round_rect(c, g.pad, g.lane_top, g.lane_right, g.lane_bottom, px(10),
-                    fill=LANE_BG, outline="", tags=static)
+        # 底板：分两层时画在底板窗口里，这个窗口的背景整个是透明的
+        if self._backdrop is not None:
+            self._backdrop.draw(g)
+        else:
+            _paint_backdrop(c, g, tags=static)
 
         # 标题行
         self._pill = _round_rect(c, g.pad + px(2), g.header_y - px(10), g.pad + px(46),
-                                 g.header_y + px(10), px(10), fill=Palette["guide_dark"],
+                                 g.header_y + px(10), px(10), fill="#22344a",
                                  outline="", tags=static)
         self._pill_text = c.create_text(g.pad + px(24), g.header_y, text="", tags=static,
                                         fill="#d6efff", font=(_FONT_UI, -px(12), "bold"))
         self._title = c.create_text(g.pad + px(56), g.header_y, text="", anchor="w", tags=static,
-                                    fill=Palette["text"], font=(_FONT_UI, -px(14), "bold"))
+                                    fill=OV["text"], font=(_FONT_UI, -px(14), "bold"))
         self._time = c.create_text(g.lane_right - px(2), g.header_y, text="", anchor="e",
-                                   tags=static, fill=Palette["text_dim"],
+                                   tags=static, fill=OV["text_dim"],
                                    font=(_FONT_NUM, -px(12)))
         self._stats = c.create_text(g.lane_right - px(104), g.header_y, text="", anchor="e",
-                                    tags=static, fill=Palette["text"],
+                                    tags=static, fill=OV["text"],
                                     font=(_FONT_UI, -px(12)))
 
-        # 进度条
-        c.create_rectangle(g.line_x, g.lane_bottom - px(6), g.lane_right - px(10),
-                           g.lane_bottom - px(2), fill=PAST_BG, outline="", tags=static)
-
-        # 左侧鼠标区：叠在音符上面，把走过判定线的音符"收"进去
-        _round_rect(c, g.pad, g.lane_top, g.zone_right, g.lane_bottom, px(10),
-                    fill=LANE_BG, outline="", tags=cover)
-        c.create_rectangle(g.zone_right - px(12), g.lane_top, g.zone_right, g.lane_bottom,
-                           fill=LANE_BG, outline="", tags=cover)
-        c.create_line(g.zone_right, g.lane_top + px(10), g.zone_right, g.lane_bottom - px(10),
-                      fill=Palette["border"], tags=cover)
+        # 左侧鼠标区：只有一个窗口时，用和轨道同色的块盖住走过判定线的音符，把它们"收"进去；
+        # 分两层时内容窗口背景是透明的，盖不住，改成画音符时直接在鼠标区边上截断（见 _draw_notes）
+        if self._backdrop is None:
+            _round_rect(c, g.pad, g.lane_top, g.zone_right, g.lane_bottom, px(10),
+                        fill=LANE_BG, outline="", tags=cover)
+            c.create_rectangle(g.zone_right - px(12), g.lane_top, g.zone_right, g.lane_bottom,
+                               fill=LANE_BG, outline="", tags=cover)
+            c.create_line(g.zone_right, g.lane_top + px(10), g.zone_right, g.lane_bottom - px(10),
+                          fill=OV["border"], tags=cover)
 
         mx0, my0, mx1, my1 = g.mouse_box
         radius = (mx1 - mx0) / 2
         split = my0 + (my1 - my0) * 0.42
         mid = (mx0 + mx1) / 2
         inset = max(1, px(2))
-        _round_rect(c, mx0, my0, mx1, my1, radius, fill="#202733", outline="#3a4454",
+        _round_rect(c, mx0, my0, mx1, my1, radius, fill="#2c2c2a", outline="#55534e",
                     width=max(1, px(1.5)), tags=cover)
         self._mouse_parts = {
             "left": c.create_polygon(
                 _rounded_points(mx0 + inset, my0 + inset, mid - 1, split, radius - inset, 0, 0, 0),
-                smooth=True, fill="#2a3240", outline="", width=max(1, px(2)), tags=cover),
+                smooth=True, fill="#3a3936", outline="", width=max(1, px(2)), tags=cover),
             "right": c.create_polygon(
                 _rounded_points(mid + 1, my0 + inset, mx1 - inset, split, 0, radius - inset, 0, 0),
-                smooth=True, fill="#2a3240", outline="", width=max(1, px(2)), tags=cover),
+                smooth=True, fill="#3a3936", outline="", width=max(1, px(2)), tags=cover),
             "middle": _round_rect(c, mid - px(3.5), my0 + px(7), mid + px(3.5), my0 + px(19),
-                                  px(3.5), fill="#3a4454", outline="", width=max(1, px(2)),
+                                  px(3.5), fill="#55534e", outline="", width=max(1, px(2)),
                                   tags=cover),
         }
         self._mouse_label = c.create_text(g.text_x, my0 + px(8), text="", anchor="w",
-                                          fill=Palette["text_dim"], tags=cover,
+                                          fill=OV["text_dim"], tags=cover,
                                           font=(_FONT_UI, -px(11)))
         self._mouse_action = c.create_text(g.text_x, (my0 + my1) / 2 + px(1), text="", anchor="w",
-                                           fill=Palette["text"], tags=cover,
+                                           fill=OV["text"], tags=cover,
                                            font=(_FONT_UI, -px(15), "bold"))
         self._mouse_next = c.create_text(g.text_x, my1 - px(7), text="", anchor="w",
-                                         fill=Palette["text_dim"], tags=cover,
+                                         fill=OV["text_dim"], tags=cover,
                                          font=(_FONT_UI, -px(10)))
 
         # 键盘提示行
@@ -733,12 +858,12 @@ class OverlayWindow(tk.Toplevel):
                 x0 = g.kb_x0 + index * (g.cap_w + g.cap_gap)
                 y0 = g.kb_top
                 rect = _round_rect(c, x0, y0, x0 + g.cap_w, y0 + g.cap_h, px(7), fill=CAP_BG,
-                                   outline=Palette["border"], width=max(1, px(1.5)), tags=static)
+                                   outline=OV["border"], width=max(1, px(1.5)), tags=static)
                 digit = c.create_text(x0 + px(7), y0 + px(9), text=_DIGITS[index], anchor="w",
-                                      fill=Palette["text_dim"], tags=static,
+                                      fill=OV["text_dim"], tags=static,
                                       font=(_FONT_NUM, -px(10)))
                 label = c.create_text(x0 + g.cap_w / 2, y0 + g.cap_h / 2 + px(3),
-                                      text=_key_glyph(key), fill="#c3ccd9", tags=static,
+                                      text=_key_glyph(key), fill="#d3d1c7", tags=static,
                                       font=(_FONT_KEY, -px(16), "bold"))
                 self._caps.append((rect, digit, label))
 
@@ -776,19 +901,19 @@ class OverlayWindow(tk.Toplevel):
         self._draw_message(frame)
         if frame.unlocked:
             g = self.geo
-            _round_rect(c, 2, 2, g.w - 3, g.h - 3, g.px(14), fill="", outline=Palette["warn"],
+            _round_rect(c, 2, 2, g.w - 3, g.h - 3, g.px(14), fill="", outline=OV["warn"],
                         width=2, tags=("dyn",))
 
     def _draw_header(self, frame: Frame) -> None:
         g = self.geo
         if frame.mode == "auto":
-            label, bg, fg = "自动", Palette["accent_dark"], "#eafff8"
+            label, bg, fg = "自动", "#c96442", "#fff4ef"
         elif frame.mode == "preview":
             label, bg, fg = "预览", "#3d2447", "#ecd4fb"
         elif frame.wait:
             label, bg, fg = "等待", "#4a3a1c", "#ffe2b0"
         else:
-            label, bg, fg = "跟弹", Palette["guide_dark"], "#d6efff"
+            label, bg, fg = "跟弹", "#22344a", "#d6efff"
         self._set(self._pill, fill=bg)
         self._set(self._pill_text, text=label, fill=fg)
 
@@ -802,19 +927,19 @@ class OverlayWindow(tk.Toplevel):
             if box:
                 self.canvas.coords(self._stats, box[0] - g.px(14), g.header_y)
         if frame.unlocked:
-            self._set(self._stats, text="拖动可移动 · 双击锁定", fill=Palette["warn"])
+            self._set(self._stats, text="拖动可移动 · 双击锁定", fill=OV["warn"])
         elif frame.state == PlayState.COUNTDOWN:
             seconds = max(1, int(frame.countdown + 0.999))
-            self._set(self._stats, text=f"{seconds} 秒后开始 · 快切到游戏窗口", fill=Palette["warn"])
+            self._set(self._stats, text=f"{seconds} 秒后开始 · 快切到游戏窗口", fill=OV["warn"])
         else:
-            self._set(self._stats, text=frame.stats, fill=Palette["text"])
+            self._set(self._stats, text=frame.stats, fill=OV["text"])
 
         # 进度
         if frame.total > 0:
             ratio = max(0.0, min(1.0, frame.position / frame.total))
             x1 = g.line_x + (g.lane_right - g.px(10) - g.line_x) * ratio
             if x1 > g.line_x + 1:
-                color = Palette["guide"] if frame.mode == "guide" else Palette["accent"]
+                color = OV["guide"] if frame.mode == "guide" else OV["accent"]
                 self.canvas.create_rectangle(g.line_x, g.lane_bottom - g.px(6), x1,
                                              g.lane_bottom - g.px(2), fill=blend(color, LANE_BG, 0.25),
                                              outline="", tags=("dyn",))
@@ -850,13 +975,13 @@ class OverlayWindow(tk.Toplevel):
                 head_fill, text_fill, outline = blend(bright, PANEL_BG, 0.35), DARK_TEXT, bright
                 tail_fill = blend(bright, LANE_BG, 0.45)
             elif mark == Mark.MISS:
-                head_fill, text_fill, outline = PAST_BG, Palette["text_dim"], "#6b3a42"
+                head_fill, text_fill, outline = PAST_BG, OV["text_dim"], "#6b3c36"
                 tail_fill = blend(PAST_BG, LANE_BG, 0.3)
             elif sounding and frame.mode != "guide":
                 head_fill, text_fill, outline = bright, DARK_TEXT, "#ffffff"
                 tail_fill = bright
             elif passed:
-                head_fill, text_fill, outline = PAST_BG, Palette["text_dim"], ""
+                head_fill, text_fill, outline = PAST_BG, OV["text_dim"], ""
                 tail_fill = blend(PAST_BG, LANE_BG, 0.3)
             else:
                 head_fill, text_fill, outline = dark, bright, bright
@@ -866,13 +991,15 @@ class OverlayWindow(tk.Toplevel):
             if cx + half > g.lane_right:
                 continue                       # 头还没完全走进轨道，整个先不画
             # 长音的头早已走进左边的鼠标区时，尾巴从鼠标区边上画起，别伸到底板外面去
-            tail_start = max(cx, g.zone_right - px(12))
+            tail_start = max(cx, g.zone_right - (0 if self._backdrop is not None else px(12)))
             tail_end = min(cx + slot.hold * speed, g.lane_right - px(4))
             if tail_end > tail_start + 2:
                 _round_rect(c, tail_start, cy - g.tail / 2, tail_end, cy + g.tail / 2, g.tail / 2,
                             fill=tail_fill, outline="", tags=("dyn",))
             if cx + half <= g.zone_right:
                 continue                       # 头整个在鼠标区底下，反正被盖住，不画
+            if self._backdrop is not None and cx - half < g.zone_right:
+                continue                       # 分两层时没东西盖：头一碰到鼠标区就不画了
             _round_rect(c, cx - half, cy - half, cx + half, cy + half, px(9), fill=head_fill,
                         outline=outline, width=max(1, px(2)) if outline else 0, tags=("dyn",))
             glyph = _key_glyph(slot.combo.key)
@@ -898,12 +1025,12 @@ class OverlayWindow(tk.Toplevel):
         c = self.canvas
         g = self.geo
         px = g.px
-        color = Palette["accent"] if frame.mode != "guide" else Palette["guide"]
+        color = OV["accent"] if frame.mode != "guide" else OV["guide"]
         width = max(1, px(2))
         if frame.waiting:
             # 等人按的时候让判定线"呼吸"，一眼就知道是在等你
             pulse = (time.perf_counter() * 2.0) % 1.0
-            color = blend(Palette["warn"], "#ffffff", 0.3 * (1 - abs(pulse * 2 - 1)))
+            color = blend(OV["warn"], "#ffffff", 0.3 * (1 - abs(pulse * 2 - 1)))
             width = max(1, px(3))
         c.create_line(g.line_x, g.lane_top + px(6), g.line_x, g.lane_bottom - px(8),
                       fill=color, width=width, tags=("dyn",))
@@ -925,16 +1052,16 @@ class OverlayWindow(tk.Toplevel):
             if button in need and feature:
                 fill = GROUP_COLORS["sharp" if feature == "sharp" else feature][1]
             else:
-                fill = "#3a4454" if button == "middle" else "#2a3240"
+                fill = "#55534e" if button == "middle" else "#3a3936"
             if frame.mode == "guide" and button in held:
-                outline = "#ffffff" if button in need else Palette["danger"]
+                outline = "#ffffff" if button in need else OV["danger"]
             else:
                 outline = ""
             self._set(item, fill=fill, outline=outline)
 
         if target is None:
             self._set(self._mouse_label, text="")
-            self._set(self._mouse_action, text="", fill=Palette["text"])
+            self._set(self._mouse_action, text="", fill=OV["text"])
             self._set(self._mouse_next, text="")
             return
         group, _sharp, _small = _note_style(target.combo, self._groups)
@@ -968,13 +1095,13 @@ class OverlayWindow(tk.Toplevel):
                 if is_target:
                     fill, outline, text, sub = bright, "#ffffff", DARK_TEXT, DARK_TEXT
                 else:
-                    fill, outline, text, sub = "#4a2228", Palette["danger"], "#ffd9dd", "#ffd9dd"
+                    fill, outline, text, sub = "#4a2a26", OV["danger"], "#fbd5d0", "#fbd5d0"
             elif is_target and sounding:
                 fill, outline, text, sub = bright, "#ffffff", DARK_TEXT, DARK_TEXT
             elif is_target:
                 fill, outline, text, sub = dark, bright, bright, bright
             else:
-                fill, outline, text, sub = CAP_BG, Palette["border"], "#c3ccd9", Palette["text_dim"]
+                fill, outline, text, sub = CAP_BG, OV["border"], "#d3d1c7", OV["text_dim"]
             self._set(rect, fill=fill, outline=outline)
             self._set(label, fill=text)
             self._set(digit, fill=sub)
@@ -989,13 +1116,13 @@ class OverlayWindow(tk.Toplevel):
             if target is not None:
                 parts = _mods_text(target.combo.mods)
                 what = (parts + " + " if parts else "") + _key_glyph(target.combo.key)
-                c.create_text(x, y, text=f"等你按：{what}", anchor="w", fill=Palette["warn"],
+                c.create_text(x, y, text=f"等你按：{what}", anchor="w", fill=OV["warn"],
                               font=(_FONT_UI, -px(12), "bold"), tags=("dyn",))
             return
         verdict = frame.verdict
         if verdict is None or frame.verdict_age > 900:
             return
-        color = VERDICT_COLORS.get(verdict.kind, Palette["text"])
+        color = VERDICT_COLORS.get(verdict.kind, OV["text"])
         fade = max(0.0, (frame.verdict_age - 350) / 550)
         c.create_text(x, y, text=verdict.text, anchor="w", fill=blend(color, LANE_BG, fade),
                       font=(_FONT_UI, -px(12), "bold"), tags=("dyn",))
@@ -1007,19 +1134,19 @@ class OverlayWindow(tk.Toplevel):
         px = g.px
         cx = (g.line_x + g.lane_right) / 2
         if frame.state == PlayState.PAUSED:
-            big, sub, color = "已暂停", "按 F6 继续", Palette["text"]
+            big, sub, color = "已暂停", "按 F6 继续", OV["text"]
         elif frame.message:
-            big, sub, color = frame.message, frame.submessage, Palette["accent"]
+            big, sub, color = frame.message, frame.submessage, OV["accent"]
         else:
             if frame.mode == "guide" and not frame.sensing:
                 c.create_text(cx, g.lane_top + px(10), text="这台电脑上读不到按键：只显示提示，不做判定",
-                              fill=Palette["text_dim"], tags=("dyn",), font=(_FONT_UI, -px(11)))
+                              fill=OV["text_dim"], tags=("dyn",), font=(_FONT_UI, -px(11)))
             return
         title = c.create_text(cx, g.lane_mid - (px(10) if sub else 0), text=big, fill=color,
                               tags=("dyn",), font=(_FONT_UI, -px(20), "bold"))
         items = [title]
         if sub:
-            items.append(c.create_text(cx, g.lane_mid + px(16), text=sub, fill=Palette["text"],
+            items.append(c.create_text(cx, g.lane_mid + px(16), text=sub, fill=OV["text"],
                                        tags=("dyn",), font=(_FONT_UI, -px(12))))
         boxes = [c.bbox(item) for item in items]
         boxes = [b for b in boxes if b]
@@ -1029,7 +1156,7 @@ class OverlayWindow(tk.Toplevel):
         y0 = min(b[1] for b in boxes) - px(8)
         x1 = max(b[2] for b in boxes) + px(18)
         y1 = max(b[3] for b in boxes) + px(8)
-        plate = _round_rect(c, x0, y0, x1, y1, px(10), fill=PANEL_BG, outline=Palette["border"],
+        plate = _round_rect(c, x0, y0, x1, y1, px(10), fill=PANEL_BG, outline=OV["border"],
                             width=1, tags=("dyn",))
         c.tag_lower(plate, title)
 
@@ -1110,7 +1237,8 @@ class OverlayController:
         self.window.apply_options(settings.overlay_scale, settings.overlay_alpha,
                                   settings.overlay_lookahead, settings.overlay_keyboard,
                                   settings.overlay_x, settings.overlay_y,
-                                  settings.overlay_anchor)
+                                  settings.overlay_anchor,
+                                  backdrop=getattr(settings, "overlay_backdrop", 0.45))
 
     def _on_moved(self, x: int, y: int) -> None:
         self.app.on_overlay_moved(x, y)

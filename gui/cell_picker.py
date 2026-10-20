@@ -19,7 +19,6 @@ from typing import Callable, Optional
 
 from kouqin.layout import Layout
 from kouqin.tune import (
-    OCTAVE_COLORS,
     OCTAVE_LABELS,
     OCTAVE_ORDER,
     HOLD,
@@ -29,7 +28,8 @@ from kouqin.tune import (
     Cell,
 )
 
-from .theme import Palette, make_button, make_label
+from .theme import Palette, make_button, make_label, octave_colors, px
+from .widgets import RoundButton
 
 
 class CellPicker(tk.Toplevel):
@@ -73,7 +73,7 @@ class CellPicker(tk.Toplevel):
             pass
 
     def _build(self) -> None:
-        root = tk.Frame(self, bg=Palette["bg"], padx=16, pady=14)
+        root = tk.Frame(self, bg=Palette["bg"], padx=px(18), pady=px(16))
         root.pack(fill=tk.BOTH, expand=True)
 
         make_label(root, "先选音高，再点要用的音", bg=Palette["bg"],
@@ -84,16 +84,13 @@ class CellPicker(tk.Toplevel):
         oct_bar.pack(fill=tk.X, pady=(0, 12))
 
         self._oct_buttons = {}
+        colors = octave_colors()
         for level in OCTAVE_ORDER:
-            bg, fg = OCTAVE_COLORS[level]
-            button = tk.Button(
-                oct_bar, text=OCTAVE_LABELS[level], command=lambda lv=level: self._set_octave(lv),
-                bg=bg, fg=fg, activebackground=fg, activeforeground=bg,
-                relief=tk.FLAT, bd=0, padx=14, pady=7, cursor="hand2",
-                font=("Microsoft YaHei UI", 10, "bold"), highlightthickness=2,
-                highlightbackground=bg,
-            )
-            button.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=3)
+            bg, fg = colors[level]
+            button = RoundButton(oct_bar, text=OCTAVE_LABELS[level], command=lambda lv=level: self._set_octave(lv),
+                                 colors=(bg, None, fg), height=34, size=10, bold=True, padx=14,
+                                 bg=Palette["bg"])
+            button.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=px(3))
             self._oct_buttons[level] = button
 
         # ---- 音格 ----
@@ -120,16 +117,11 @@ class CellPicker(tk.Toplevel):
 
         self._refresh()
 
-    def _make_note_button(self, parent, index: int) -> tk.Button:
-        bg, fg = OCTAVE_COLORS[0]
-        button = tk.Button(
-            parent, command=lambda i=index: self._pick_note(i),
-            bg=bg, fg=fg, activebackground=fg, activeforeground=bg,
-            relief=tk.FLAT, bd=0, cursor="hand2", highlightthickness=2,
-            highlightbackground=bg, width=7, height=3,
-            font=("Microsoft YaHei UI", 11, "bold"),
-        )
-        return button
+    def _make_note_button(self, parent, index: int) -> RoundButton:
+        bg, fg = octave_colors()[0]
+        return RoundButton(parent, text="\n\n", command=lambda i=index: self._pick_note(i),
+                           colors=(bg, None, fg), height=78, size=11, bold=True, width=7,
+                           radius=10, bg=Palette["bg"])
 
     # ------------------------------------------------------------------ #
 
@@ -138,16 +130,14 @@ class CellPicker(tk.Toplevel):
         self._refresh()
 
     def _refresh(self) -> None:
-        bg, fg = OCTAVE_COLORS[self.octave]
+        colors = octave_colors()
+        bg, fg = colors[self.octave]
 
         for level, button in self._oct_buttons.items():
             active = level == self.octave
-            level_bg, level_fg = OCTAVE_COLORS[level]
-            button.configure(
-                relief=tk.FLAT if active else tk.FLAT,
-                highlightbackground=level_fg if active else level_bg,
-                bd=0,
-            )
+            level_bg, level_fg = colors[level]
+            # 选中的档位反色：实心深色底、浅色字
+            button.configure(colors=(level_fg, None, level_bg) if active else (level_bg, None, level_fg))
 
         # 当前音高下每个音对应的按键提示
         for index, button in enumerate(self._note_buttons):
@@ -159,11 +149,7 @@ class CellPicker(tk.Toplevel):
                         and self.current.octave == self.octave)
             button.configure(
                 text=f"{STEP_DIGITS[index]}\n{STEP_NAMES[index]}\n{key_text}",
-                bg=Palette["accent_dark"] if selected else bg,
-                fg="#ffffff" if selected else fg,
-                activebackground=fg,
-                activeforeground=bg,
-                highlightbackground=fg if selected else bg,
+                colors=(Palette["accent"], None, Palette["on_accent"]) if selected else (bg, None, fg),
             )
 
     def _pick_note(self, index: int) -> None:

@@ -5,18 +5,27 @@
 曲名列表 + 一个够大的播放按钮，不用切窗口、不用记快捷键，
 鼠标点一下就开吹。
 
+    曲库                                    [我的曲库 | 在线曲库]
+    「跟弹」你自己按，「演奏」程序替你按
+    [⌕ 搜索曲名            ]                  导入  恢复内置  ＋新建
+    ╭──────────────────────────────────────────────────────────╮
+    │ 小星星  [正在演奏]                    ✎  🗑  [跟弹] [演奏] │
+    │ 12 小节 · 42 个音 · 约 29 秒 · 跟弹难度 ●●○○○              │
+    ├──────────────────────────────────────────────────────────┤
+    │ ……                                                       │
+    ╰──────────────────────────────────────────────────────────╯
+    ╭ 正在演奏 · 小星星   ━━━━━━●───────  0:11 / 0:29  ⏸暂停 ■停止 ╮
+
 每首曲子两个按钮：
     「跟弹」 游戏画面上浮出按键提示，玩家自己按（程序一个键都不按）
     「演奏」 程序自动替你按
-
-正在演奏时底部会出现进度条、暂停和大号停止按钮，按一下立刻停手。
 """
 
 from __future__ import annotations
 
 import os
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk
 from typing import Dict, List, Optional, Tuple
 
 from kouqin.engine import compile_notes
@@ -24,7 +33,11 @@ from kouqin.practice import difficulty
 from kouqin.tune import Tune
 
 from .online_page import OnlinePanel
-from .theme import Palette, add_hover, enable_wheel_scroll, make_button, make_label
+from .theme import Palette, enable_wheel_scroll, make_button, make_label, mono_font, px, title_font, ui_font
+from .widgets import RoundButton, RoundedPanel, SearchEntry, Segmented, make_badge, rounded_photo
+
+#: 页面左右留白
+_GUTTER = 28
 
 
 class LibraryPage(tk.Frame):
@@ -35,9 +48,12 @@ class LibraryPage(tk.Frame):
         self.app = app
         self._playing_name: Optional[str] = None
         self._row_widgets: List[tuple] = []
+        self._badges: Dict[str, RoundButton] = {}
         self._difficulty_cache: Dict[tuple, Tuple[int, str]] = {}
         self._tab = "local"
         self.online: Optional[OnlinePanel] = None
+        self.var_query = tk.StringVar()
+        self._search_job: Optional[str] = None
 
         self._build()
 
@@ -46,119 +62,99 @@ class LibraryPage(tk.Frame):
     # ================================================================== #
 
     def _build(self) -> None:
-        self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(2, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
         self._build_header()
+        self._build_toolbar()
         self._build_list()
         self._build_player_bar()
 
     def _build_header(self) -> None:
-        bar = tk.Frame(self, bg=Palette["panel"], height=54)
-        bar.grid(row=0, column=0, sticky="ew")
-        bar.grid_propagate(False)
+        P = Palette
+        head = tk.Frame(self, bg=P["bg"])
+        head.grid(row=0, column=0, sticky="ew", padx=px(_GUTTER), pady=(px(24), px(12)))
+        text = tk.Frame(head, bg=P["bg"])
+        text.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        tk.Label(text, text="曲库", font=title_font(22), bg=P["bg"], fg=P["text"], anchor="w").pack(fill=tk.X)
+        self.lbl_count = make_label(text, "", dim=True, anchor="w")
+        self.lbl_count.pack(fill=tk.X, pady=(px(4), 0))
+        self.tabs = Segmented(head, [("local", "我的曲库"), ("online", "在线曲库")], command=self.show_tab,
+                              value="local", size=9)
+        self.tabs.pack(side=tk.RIGHT, anchor="s")
 
-        # 两个标签：自己的曲库 / 在线曲库
-        self._tab_buttons: Dict[str, tk.Button] = {}
-        for key, text in (("local", "我的曲库"), ("online", "在线曲库")):
-            button = tk.Button(bar, text=text, command=lambda k=key: self.show_tab(k),
-                               relief=tk.FLAT, bd=0, padx=12, pady=4, cursor="hand2",
-                               highlightthickness=0, activebackground=Palette["panel_alt"],
-                               activeforeground=Palette["text"])
-            button.pack(side=tk.LEFT, padx=(14 if key == "local" else 2, 2), pady=10)
-            add_hover(button)
-            self._tab_buttons[key] = button
-        self.lbl_count = make_label(bar, "", dim=True)
-        self.lbl_count.pack(side=tk.LEFT, padx=(8, 0), pady=14)
-
-        self._local_actions = tk.Frame(bar, bg=Palette["panel"])
-        self._local_actions.pack(side=tk.RIGHT, padx=(4, 10))
-        make_button(self._local_actions, "新建曲子", self._new_tune, kind="accent").pack(side=tk.RIGHT, padx=(4, 4), pady=10)
-        make_button(self._local_actions, "恢复内置曲目", self._restore_presets, kind="ghost").pack(side=tk.RIGHT, padx=4, pady=10)
-        make_button(self._local_actions, "导入曲谱", self._import_tune, kind="ghost").pack(side=tk.RIGHT, padx=4, pady=10)
-        self._paint_tabs()
-
-    def _paint_tabs(self) -> None:
-        for key, button in self._tab_buttons.items():
-            active = key == self._tab
-            button.configure(
-                bg=Palette["panel_alt"] if active else Palette["panel"],
-                fg=Palette["text"] if active else Palette["text_dim"],
-                font=("Microsoft YaHei UI", 12 if active else 11, "bold" if active else "normal"),
-            )
+    def _build_toolbar(self) -> None:
+        P = Palette
+        bar = tk.Frame(self, bg=P["bg"])
+        bar.grid(row=1, column=0, sticky="ew", padx=px(_GUTTER), pady=(0, px(12)))
+        self._local_actions = bar
+        search = SearchEntry(bar, self.var_query, placeholder="搜索曲名", width=24)
+        search.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.var_query.trace_add("write", lambda *_: self._schedule_search())
+        make_button(bar, "新建曲子", self._new_tune, icon_name="add").pack(side=tk.RIGHT, padx=(px(6), 0))
+        make_button(bar, "恢复内置曲目", self._restore_presets, kind="ghost").pack(side=tk.RIGHT, padx=(px(6), 0))
+        make_button(bar, "导入曲谱", self._import_tune, kind="ghost", icon_name="import").pack(
+            side=tk.RIGHT, padx=(px(10), 0))
 
     def show_tab(self, key: str) -> None:
         """切换「我的曲库」/「在线曲库」。在线曲库第一次打开时才创建、才联网。"""
         self._tab = key
-        self._paint_tabs()
+        self.tabs.set(key)
         if key == "online":
             if self.online is None:
                 self.online = OnlinePanel(self, self.app)
-                self.online.grid(row=1, column=0, sticky="nsew")
+                self.online.grid(row=1, column=0, rowspan=2, sticky="nsew")
             self._local_wrap.grid_remove()
-            self._local_actions.pack_forget()
-            self.lbl_count.configure(text="")
+            self._local_actions.grid_remove()
+            self.lbl_count.configure(text="Dr-hydra 公开曲库 · 玩家上传的曲谱 · 只读")
             self.online.grid()
             self.online.tkraise()
             self.online.on_show()
         else:
             if self.online is not None:
                 self.online.grid_remove()
+            self._local_actions.grid()
             self._local_wrap.grid()
-            self._local_actions.pack(side=tk.RIGHT, padx=(4, 10))
             self.refresh()
 
     def _build_list(self) -> None:
-        wrap = tk.Frame(self, bg=Palette["bg"])
-        wrap.grid(row=1, column=0, sticky="nsew")
+        P = Palette
+        wrap = tk.Frame(self, bg=P["bg"])
+        wrap.grid(row=2, column=0, sticky="nsew")
         wrap.grid_rowconfigure(0, weight=1)
         wrap.grid_columnconfigure(0, weight=1)
         self._local_wrap = wrap
 
-        self.canvas = tk.Canvas(wrap, bg=Palette["bg"], highlightthickness=0)
+        self.canvas = tk.Canvas(wrap, bg=P["bg"], highlightthickness=0, yscrollincrement=px(20))
         self.canvas.grid(row=0, column=0, sticky="nsew")
-
-        scroll = tk.Scrollbar(wrap, orient=tk.VERTICAL, command=self.canvas.yview,
-                              bg=Palette["panel_alt"], troughcolor=Palette["panel"],
-                              activebackground=Palette["border"], width=12)
-        scroll.grid(row=0, column=1, sticky="ns")
+        scroll = ttk.Scrollbar(wrap, orient=tk.VERTICAL, command=self.canvas.yview)
+        scroll.grid(row=0, column=1, sticky="ns", padx=(0, px(6)))
         self.canvas.configure(yscrollcommand=scroll.set)
 
-        self.inner = tk.Frame(self.canvas, bg=Palette["bg"])
+        self.inner = tk.Frame(self.canvas, bg=P["bg"])
         self._window = self.canvas.create_window((0, 0), window=self.inner, anchor="nw")
         self.inner.bind("<Configure>", self._on_inner_resize)
         self.canvas.bind("<Configure>", self._on_canvas_resize)
         enable_wheel_scroll(self.canvas)
 
     def _build_player_bar(self) -> None:
-        self.bar = tk.Frame(self, bg=Palette["panel_alt"], height=54)
-        self.bar.grid(row=2, column=0, sticky="ew")
-        self.bar.grid_propagate(False)
+        P = Palette
+        card = RoundedPanel(self, fill=P["panel"], outline=P["border_strong"], radius=16, padx=16, pady=10)
+        card.grid(row=3, column=0, sticky="ew", padx=px(_GUTTER), pady=(px(10), px(14)))
+        self.bar = body = card.body
+        body.grid_columnconfigure(1, weight=1)
 
-        self.lbl_now = make_label(self.bar, "选一首曲子：「跟弹」自己按，「演奏」程序替你按",
-                                  bg=Palette["panel_alt"])
-        self.lbl_now.pack(side=tk.LEFT, padx=(14, 8), pady=14)
-
-        self.btn_stop = make_button(self.bar, "■  停止", self._stop, kind="danger")
-        self.btn_stop.pack(side=tk.RIGHT, padx=(4, 14), pady=10)
-        self.btn_stop.configure(state=tk.DISABLED)
-
-        self.btn_pause = make_button(self.bar, "⏸  暂停", self.app.toggle_pause, kind="ghost")
-        self.btn_pause.pack(side=tk.RIGHT, padx=4, pady=10)
-        self.btn_pause.configure(state=tk.DISABLED)
-
-        self.lbl_score = make_label(self.bar, "", bg=Palette["panel_alt"])
-        self.lbl_score.configure(fg=Palette["guide"])
-        self.lbl_score.pack(side=tk.RIGHT, padx=10, pady=14)
-
-        self.lbl_time = make_label(self.bar, "", dim=True, bg=Palette["panel_alt"])
-        self.lbl_time.configure(font=("Consolas", 10))
-        self.lbl_time.pack(side=tk.RIGHT, padx=(2, 6), pady=14)
+        info = tk.Frame(body, bg=P["panel"], width=px(190), height=px(40))
+        info.grid(row=0, column=0, sticky="w")
+        info.pack_propagate(False)
+        self.lbl_mode = make_label(info, "没在播放", size=8, dim=True, anchor="w")
+        self.lbl_mode.pack(fill=tk.X)
+        self.lbl_now = make_label(info, "选一首曲子开始", bold=True, size=10, anchor="w")
+        self.lbl_now.pack(fill=tk.X)
 
         # 进度条：点一下跳过去，按住拖动松开后跳（拖的过程中不跳，免得一路乱响）
-        self.progress = tk.Canvas(self.bar, bg=Palette["panel_alt"], highlightthickness=0, height=20,
-                                  cursor="hand2")
-        self.progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=12)
+        self.progress = tk.Canvas(body, bg=P["panel"], highlightthickness=0, height=px(24), cursor="hand2")
+        self.progress.grid(row=0, column=1, sticky="ew", padx=(px(8), px(10)))
         self._ratio = 0.0
         self._scrub: Optional[float] = None       # 正在拖的位置（0~1），None = 没在拖
         self.progress.bind("<ButtonPress-1>", self._scrub_move)
@@ -166,40 +162,63 @@ class LibraryPage(tk.Frame):
         self.progress.bind("<ButtonRelease-1>", self._scrub_end)
         self.progress.bind("<Configure>", lambda e: self._draw_progress())
 
+        self.lbl_time = make_label(body, "", dim=True, font=mono_font(9))
+        self.lbl_time.grid(row=0, column=2, padx=(0, px(10)))
+        self.lbl_score = make_label(body, "", fg=P["guide"])
+        self.lbl_score.grid(row=0, column=3, padx=(0, px(10)))
+
+        self.btn_pause = make_button(body, "暂停", self.app.toggle_pause, icon_name="pause")
+        self.btn_pause.grid(row=0, column=4, padx=(0, px(6)))
+        self.btn_pause.configure(state=tk.DISABLED)
+        self.btn_stop = make_button(body, "停止", self._stop, kind="danger", icon_name="stop")
+        self.btn_stop.grid(row=0, column=5)
+        self.btn_stop.configure(state=tk.DISABLED)
+
     # ================================================================== #
     # 列表渲染
     # ================================================================== #
 
+    def _schedule_search(self) -> None:
+        if self._search_job:
+            self.after_cancel(self._search_job)
+        self._search_job = self.after(180, self.refresh)
+
     def refresh(self) -> None:
         """重新读曲库并刷新列表。"""
+        self._search_job = None
         for child in self.inner.winfo_children():
             child.destroy()
         self._row_widgets.clear()
+        self._badges.clear()
 
         names = self.app.library.names()
         if self._tab == "local":
-            self.lbl_count.configure(text=f"（{len(names)} 首）" if names else "")
+            self.lbl_count.configure(text=f"{len(names)} 首曲子 · 「跟弹」你自己按，「演奏」程序替你按")
+        query = self.var_query.get().strip().lower()
+        shown = [n for n in names if query in n.lower()] if query else names
 
-        if not names:
-            box = tk.Frame(self.inner, bg=Palette["bg"])
-            box.pack(fill=tk.X, padx=20, pady=60)
-            make_label(box, "曲库还是空的", bg=Palette["bg"], size=13, bold=True).pack()
-            make_label(box, "点右上角「新建曲子」，或者「恢复内置曲目」先拿几首经典曲子练手",
-                       bg=Palette["bg"], dim=True).pack(pady=(8, 0))
+        P = Palette
+        if not shown:
+            self._empty_state(query)
             return
+        card = RoundedPanel(self.inner, fill=P["panel"], radius=12, padx=4, pady=4)
+        card.pack(fill=tk.X, padx=(px(_GUTTER), px(_GUTTER - 6)), pady=(0, px(8)))
+        for index, name in enumerate(shown):
+            if index:
+                tk.Frame(card.body, bg=P["border"], height=1).pack(fill=tk.X, padx=px(10))
+            self._add_row(card.body, name)
 
-        tip = tk.Frame(self.inner, bg=Palette["bg"])
-        tip.pack(fill=tk.X, padx=16, pady=(10, 0))
-        tk.Label(tip, text="跟弹", bg=Palette["guide_dark"], fg="#d6efff",
-                 font=("Microsoft YaHei UI", 8, "bold"), padx=6).pack(side=tk.LEFT)
-        make_label(tip, " 游戏画面上浮出按键提示，你自己按（程序不按任何键）　",
-                   bg=Palette["bg"], dim=True).pack(side=tk.LEFT)
-        tk.Label(tip, text="演奏", bg=Palette["accent_dark"], fg="#eafff8",
-                 font=("Microsoft YaHei UI", 8, "bold"), padx=6).pack(side=tk.LEFT)
-        make_label(tip, " 程序自动替你按", bg=Palette["bg"], dim=True).pack(side=tk.LEFT)
-
-        for name in names:
-            self._add_row(name)
+    def _empty_state(self, query: str) -> None:
+        P = Palette
+        box = tk.Frame(self.inner, bg=P["bg"])
+        box.pack(fill=tk.X, pady=px(48))
+        if query:
+            make_label(box, f"没找到「{query}」", size=11, bold=True).pack()
+            make_label(box, "换个词试试，或者去「在线曲库」里找找", dim=True).pack(pady=(px(4), 0))
+            return
+        make_label(box, "开始你的第一首曲子", size=11, bold=True).pack()
+        make_label(box, "在谱曲页点格子编一首，或者导入别人分享的曲谱", dim=True).pack(pady=(px(4), px(12)))
+        make_button(box, "新建曲子", self._new_tune, kind="accent", icon_name="add").pack()
 
     def _difficulty(self, name: str, tune: Tune) -> Tuple[int, str]:
         """跟弹难度。编译有点开销，按"文件修改时间 + 键位 + 速度"缓存。"""
@@ -217,55 +236,59 @@ class LibraryPage(tk.Frame):
             self._difficulty_cache[key] = cached
         return cached
 
-    def _add_row(self, name: str) -> None:
+    def _add_row(self, parent, name: str) -> None:
         tune = self.app.library.load(name)
         if tune is None:
             return
+        P = Palette
+        bg = P["panel"]
+        row = tk.Frame(parent, bg=bg)
+        row.pack(fill=tk.X)
 
-        playing = name == self._playing_name
-        bg = Palette["panel_alt"] if playing else Palette["panel"]
-        accent = Palette["guide"] if self.app.play_mode == "guide" else Palette["accent"]
-
-        row = tk.Frame(self.inner, bg=bg, highlightthickness=1,
-                       highlightbackground=accent if playing else Palette["border"])
-        row.pack(fill=tk.X, padx=12, pady=4)
+        # --- 右侧按钮（先放，免得曲名太长把按钮挤出去）：编辑 删除 跟弹 演奏 ---
+        buttons = tk.Frame(row, bg=bg)
+        buttons.pack(side=tk.RIGHT, padx=(px(8), px(12)), pady=px(10))
+        if tune.is_grid:
+            RoundButton(buttons, icon_name="edit", kind="icon", height=32, padx=8,
+                        command=lambda n=name: self.app.edit_tune(n)).pack(side=tk.LEFT)
+        RoundButton(buttons, icon_name="delete", kind="icon", height=32, padx=8,
+                    command=lambda n=name: self._delete(n)).pack(side=tk.LEFT, padx=(px(2), 0))
+        make_button(buttons, "跟弹", lambda n=name: self.app.play_tune_by_name(n, "guide"),
+                    kind="guide").pack(side=tk.LEFT, padx=(px(8), 0))
+        make_button(buttons, "演奏", lambda n=name: self.app.play_tune_by_name(n, "auto"),
+                    kind="accent").pack(side=tk.LEFT, padx=(px(6), 0))
 
         # --- 左侧信息 ---
         info = tk.Frame(row, bg=bg)
-        info.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=14, pady=10)
-
-        title = tk.Label(info, text=("♪  " if playing else "") + tune.name,
-                         bg=bg, fg=accent if playing else Palette["text"],
-                         font=("Microsoft YaHei UI", 12, "bold"), anchor="w")
-        title.pack(anchor="w")
+        info.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(px(14), 0), pady=px(10))
+        line1 = tk.Frame(info, bg=bg)
+        line1.pack(anchor="w", fill=tk.X)
+        title = tk.Label(line1, text=tune.name, bg=bg, fg=P["text"], font=ui_font(11, True), anchor="w")
+        title.pack(side=tk.LEFT)
+        if tune.source.get("kind") == "online":
+            make_badge(line1, "在线曲库", "guide").pack(side=tk.LEFT, padx=(px(8), 0))
+        if name == self._playing_name:
+            badge = make_badge(line1, self._playing_text(), self._playing_tone())
+            badge.pack(side=tk.LEFT, padx=(px(8), 0))
+            self._badges[name] = badge
 
         seconds = tune.duration_ms() / 1000.0
-        detail = f"{tune.bar_count} 小节 · {tune.note_count()} 个音 · 约 {seconds:.0f} 秒 · {tune.bpm:.0f} 拍/分"
-        line = tk.Frame(info, bg=bg)
-        line.pack(anchor="w", pady=(3, 0))
-        tk.Label(line, text=detail, bg=bg, fg=Palette["text_dim"],
-                 font=("Microsoft YaHei UI", 9), anchor="w").pack(side=tk.LEFT)
+        if tune.is_grid:
+            detail = f"{tune.bar_count} 小节 · {tune.note_count()} 个音 · 约 {_duration(seconds)}"
+        else:
+            uploader = tune.source.get("uploader") or "匿名玩家"
+            detail = (f"{tune.note_count()} 个音 · 约 {_duration(seconds)} · "
+                      f"来自在线曲库 · 上传者 {uploader} · 原样保存，不能编辑")
+        line2 = tk.Frame(info, bg=bg)
+        line2.pack(anchor="w", pady=(px(3), 0))
+        tk.Label(line2, text=detail, bg=bg, fg=P["text_dim"], font=ui_font(9), anchor="w").pack(side=tk.LEFT)
         if not tune.is_empty():
             stars, hint = self._difficulty(name, tune)
-            tk.Label(line, text=f"　跟弹难度 {'★' * stars}{'☆' * (5 - stars)}", bg=bg,
-                     fg=Palette["guide"], font=("Microsoft YaHei UI", 9), anchor="w").pack(side=tk.LEFT)
-            tk.Label(line, text=f"（{hint.split('，')[-1]}）", bg=bg, fg=Palette["text_dim"],
-                     font=("Microsoft YaHei UI", 9), anchor="w").pack(side=tk.LEFT)
-
-        # --- 右侧按钮 ---
-        make_button(row, "演奏", lambda n=name: self.app.play_tune_by_name(n, "auto"),
-                    kind="accent" if not playing else "ghost", width=6).pack(side=tk.RIGHT, padx=(2, 12), pady=10)
-        make_button(row, "跟弹", lambda n=name: self.app.play_tune_by_name(n, "guide"),
-                    kind="guide" if not playing else "ghost", width=6).pack(side=tk.RIGHT, padx=2, pady=10)
-        if tune.is_grid:
-            make_button(row, "编辑", lambda n=name: self.app.edit_tune(n),
-                        kind="ghost", width=5).pack(side=tk.RIGHT, padx=2, pady=10)
-        if tune.source.get("kind") == "online":
-            uploader = tune.source.get("uploader") or "匿名玩家"
-            tk.Label(info, text=f"来自在线曲库 · 上传者 {uploader} · 原样保存（不能编辑）", bg=bg,
-                     fg=Palette["text_dim"], font=("Microsoft YaHei UI", 8), anchor="w").pack(anchor="w", pady=(2, 0))
-        make_button(row, "删除", lambda n=name: self._delete(n),
-                    kind="ghost", width=5).pack(side=tk.RIGHT, padx=2, pady=10)
+            tk.Label(line2, text=" · 跟弹难度 ", bg=bg, fg=P["text_dim"], font=ui_font(9)).pack(side=tk.LEFT)
+            tk.Label(line2, text="●" * stars, bg=bg, fg=P["text_dim"], font=ui_font(7)).pack(side=tk.LEFT)
+            tk.Label(line2, text="●" * (5 - stars), bg=bg, fg=P["border_strong"], font=ui_font(7)).pack(side=tk.LEFT)
+            tk.Label(line2, text=f"  {hint.split('，')[-1]}", bg=bg, fg=P["text_muted"],
+                     font=ui_font(9)).pack(side=tk.LEFT)
 
         self._row_widgets.append((name, row, bg, title))
 
@@ -323,11 +346,25 @@ class LibraryPage(tk.Frame):
     def _color(self) -> str:
         return Palette["guide"] if self.app.play_mode == "guide" else Palette["accent"]
 
+    def _playing_tone(self) -> str:
+        return "guide" if self.app.play_mode == "guide" else "accent"
+
+    def _playing_text(self) -> str:
+        if self.app.player.state == "paused":
+            return "已暂停"
+        return f"正在{self._verb()}"
+
+    def _update_badge(self) -> None:
+        badge = self._badges.get(self._playing_name or "")
+        if badge is not None:
+            badge.configure(text=self._playing_text(), kind=f"badge_{self._playing_tone()}")
+
     def set_playing(self, name: Optional[str]) -> None:
         self._playing_name = name
         self.btn_stop.configure(state=tk.NORMAL if name else tk.DISABLED)
         if name:
-            self.lbl_now.configure(text=f"▶  正在{self._verb()}：{name}", fg=self._color())
+            self.lbl_mode.configure(text=f"正在{self._verb()}", fg=self._color())
+            self.lbl_now.configure(text=name)
         self.refresh()
 
     def set_progress(self, ratio: float, text: str) -> None:
@@ -342,23 +379,28 @@ class LibraryPage(tk.Frame):
         return self.app.player.state in ("playing", "paused") and self.app.player.total > 0
 
     def _draw_progress(self) -> None:
+        P = Palette
         c = self.progress
         c.delete("all")
         width = max(40, c.winfo_width())
-        mid = max(10, c.winfo_height()) // 2
-        pad = 8                                    # 两头留出拖动圆点的位置
+        mid = max(12, c.winfo_height()) // 2
+        pad = px(9)                                 # 两头留出拖动圆点的位置
         ratio = self._scrub if self._scrub is not None else self._ratio
         x = pad + (width - 2 * pad) * ratio
-        c.create_line(pad, mid, width - pad, mid, fill=Palette["panel"], width=6, capstyle=tk.ROUND)
+        thick = px(4)
+        c.create_line(pad, mid, width - pad, mid, fill=P["panel_alt"] if P["panel_alt"] != P["panel"] else P["border"],
+                      width=thick, capstyle=tk.ROUND)
         if ratio > 0:
-            c.create_line(pad, mid, x, mid, fill=self._color(), width=6, capstyle=tk.ROUND)
+            c.create_line(pad, mid, x, mid, fill=self._color(), width=thick, capstyle=tk.ROUND)
         if self._seekable() or self._scrub is not None:
-            r = 7 if self._scrub is not None else 6
-            c.create_oval(x - r, mid - r, x + r, mid + r, fill="#ffffff", outline=self._color(), width=2)
+            size = px(16) if self._scrub is None else px(18)
+            knob = rounded_photo(c, size, size, size // 2, P["panel"], self._color(), P["panel"], border=px(2))
+            c.create_image(x, mid, image=knob)
 
     def _ratio_at(self, x: int) -> float:
         width = max(40, self.progress.winfo_width())
-        return max(0.0, min(1.0, (x - 8) / (width - 16)))
+        pad = px(9)
+        return max(0.0, min(1.0, (x - pad) / (width - 2 * pad)))
 
     def _scrub_move(self, event) -> None:
         if not self._seekable():
@@ -377,14 +419,15 @@ class LibraryPage(tk.Frame):
             self._draw_progress()
 
     def set_score(self, text: str) -> None:
-        """跟弹时播放条右边的实时成绩。"""
+        """跟弹时播放条上的实时成绩。"""
         self.lbl_score.configure(text=text)
 
     def show_idle(self) -> None:
         self._playing_name = None
         self.btn_stop.configure(state=tk.DISABLED)
-        self.btn_pause.configure(state=tk.DISABLED, text="⏸  暂停")
-        self.lbl_now.configure(text="选一首曲子：「跟弹」自己按，「演奏」程序替你按", fg=Palette["text"])
+        self.btn_pause.configure(state=tk.DISABLED, text="暂停", icon_name="pause")
+        self.lbl_mode.configure(text="没在播放", fg=Palette["text_dim"])
+        self.lbl_now.configure(text="选一首曲子开始")
         self.lbl_score.configure(text="")
         self.lbl_time.configure(text="")
         self._scrub = None
@@ -396,27 +439,32 @@ class LibraryPage(tk.Frame):
         if self._playing_name != name:
             self._playing_name = name
             self.refresh()
-        self.lbl_now.configure(text=f"▶  正在{self._verb()}：{name}", fg=self._color())
+        self.lbl_mode.configure(text=f"正在{self._verb()}", fg=self._color())
+        self.lbl_now.configure(text=name)
         self.btn_stop.configure(state=tk.NORMAL)
-        self.btn_pause.configure(state=tk.NORMAL, text="⏸  暂停")
+        self.btn_pause.configure(state=tk.NORMAL, text="暂停", icon_name="pause")
         if self.app.play_mode != "guide":
             self.lbl_score.configure(text="")
+        self._update_badge()
 
     def show_countdown(self, seconds: float, name: str) -> None:
-        self.lbl_now.configure(text=f"⏱  {seconds:.0f} 秒后开始{self._verb()}：{name}（快切到游戏）",
-                               fg=Palette["warn"])
+        self.lbl_mode.configure(text=f"{seconds:.0f} 秒后开始{self._verb()} · 快切到游戏", fg=Palette["warn"])
+        self.lbl_now.configure(text=name)
         self.btn_stop.configure(state=tk.NORMAL)
         self.btn_pause.configure(state=tk.DISABLED)
 
     def show_paused(self, name: str) -> None:
-        self.lbl_now.configure(text=f"⏸  已暂停：{name}", fg=Palette["text_dim"])
-        self.btn_pause.configure(state=tk.NORMAL, text="▶  继续")
+        self.lbl_mode.configure(text="已暂停 · F6 继续", fg=Palette["text_dim"])
+        self.lbl_now.configure(text=name)
+        self.btn_pause.configure(state=tk.NORMAL, text="继续", icon_name="play")
+        self._update_badge()
 
     def show_done(self, name: str) -> None:
         self._playing_name = None
-        self.lbl_now.configure(text=f"✔  {self._verb()}完成：{name}", fg=self._color())
+        self.lbl_mode.configure(text=f"{self._verb()}完成", fg=self._color())
+        self.lbl_now.configure(text=name)
         self.btn_stop.configure(state=tk.DISABLED)
-        self.btn_pause.configure(state=tk.DISABLED, text="⏸  暂停")
+        self.btn_pause.configure(state=tk.DISABLED, text="暂停", icon_name="pause")
         self.refresh()
 
     def _stop(self) -> None:
@@ -426,3 +474,10 @@ class LibraryPage(tk.Frame):
 def _clock(ms: float) -> str:
     seconds = int(max(0.0, ms) // 1000)
     return f"{seconds // 60}:{seconds % 60:02d}"
+
+
+def _duration(seconds: float) -> str:
+    seconds = int(round(seconds))
+    if seconds < 60:
+        return f"{seconds} 秒"
+    return f"{seconds // 60} 分 {seconds % 60:02d} 秒"

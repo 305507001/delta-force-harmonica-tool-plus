@@ -490,12 +490,15 @@ def cmd_selftest(args) -> int:
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "settings.json")
             settings = AppSettings()
+            # 临时文件里换一套和默认（Z X C V B N M 逗号）不同的键位，只为验证能存能读
             settings.keys = list("asdfghjk")
             settings.countdown = 5.0
             settings.timing = "safe"
             settings.guide_wait = True
             settings.overlay_scale = 1.25
             settings.overlay_x, settings.overlay_y = -1600, 420      # 主屏左边的副屏
+            settings.overlay_backdrop = 0.7
+            settings.appearance = "dark"
             assert settings.save(path), "写配置文件失败"
             back = AppSettings.load(path)
             assert back.keys == list("asdfghjk"), "键位没存住"
@@ -503,6 +506,9 @@ def cmd_selftest(args) -> int:
             assert back.timing == "safe", "节奏档没存住"
             assert back.guide_wait and abs(back.overlay_scale - 1.25) < 0.01, "跟弹选项没存住"
             assert (back.overlay_x, back.overlay_y) == (-1600, 420), "悬浮窗位置没存住"
+            assert abs(back.overlay_backdrop - 0.7) < 0.01 and back.appearance == "dark", "外观 / 底板透明度没存住"
+            fresh = AppSettings()
+            assert fresh.keys == list("zxcvbnm,") and fresh.appearance == "system", "出厂设置应是游戏默认键位、跟随系统"
             assert back.copy().keys is not back.keys, "copy() 不能和原对象共用列表"
             assert not back.validate_keymap(), "校验器误报冲突"
             # 故意造一个冲突，校验器应当抓到
@@ -821,10 +827,16 @@ def main(argv=None) -> int:
 
     from gui.main_window import MainWindow
 
-    window = MainWindow()
-    if args.file:
-        window.open_midi_file(args.file)
-    window.mainloop()
+    # 换外观时窗口会在同一个进程里重建一次
+    first = True
+    while True:
+        window = MainWindow()
+        if first and args.file:
+            window.open_midi_file(args.file)
+        first = False
+        window.mainloop()
+        if not window.restart_requested:
+            break
     return 0
 
 

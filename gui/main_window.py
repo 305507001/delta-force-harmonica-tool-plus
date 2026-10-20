@@ -1,15 +1,16 @@
 """
-主窗口 —— 一个壳，把三页装起来。
+主窗口 —— 一个壳，把几个页面装起来。
 
-    ┌──────────────────────────────────────────────┐
-    │  口琴工坊   [曲库] [谱曲] [设置] [进阶]   ■停止 │
-    ├──────────────────────────────────────────────┤
-    │                                              │
-    │                当前页面                       │
-    │                                              │
-    ├──────────────────────────────────────────────┤
-    │  状态栏 / 日志                                 │
-    └──────────────────────────────────────────────┘
+    ┌──────────┬───────────────────────────────────┐
+    │ 口琴工坊  │                                   │
+    │          │                                   │
+    │ ♪ 曲库    │            当前页面                │
+    │ ✎ 谱曲    │                                   │
+    │ ⋯ 进阶    │                                   │
+    │          │                                   │
+    │ ■ 停止    ├───────────────────────────────────┤
+    │ ⚙ 设置    │  状态 / 日志                       │
+    └──────────┴───────────────────────────────────┘
 
 设计原则：**默认界面只留不懂音乐的人也看得懂的东西**。
 MIDI 导入、钢琴卷帘这些给熟手用的功能全部收进「进阶」页，
@@ -40,7 +41,8 @@ from .disclaimer import ask_disclaimer
 from .library_page import LibraryPage
 from .overlay import OverlayController
 from .settings_page import SettingsPage
-from .theme import Palette, add_hover, apply_theme, make_button, make_label
+from .theme import Palette, apply_theme, make_button, make_label, mono_font, px, set_appearance, title_font
+from .widgets import RoundButton
 
 APP_NAME = "口琴工坊"
 APP_SUB = "三角洲行动 · 口琴自动演奏 / 跟弹提示"
@@ -49,12 +51,11 @@ APP_SUB = "三角洲行动 · 口琴自动演奏 / 跟弹提示"
 MODE_AUTO = "auto"
 MODE_GUIDE = "guide"
 
-#: 顶部导航：(标识, 显示名)
+#: 侧栏导航：(标识, 显示名, 图标)。设置单独放在侧栏底部
 TABS = (
-    ("library", "曲库"),
-    ("compose", "谱曲"),
-    ("settings", "设置"),
-    ("advanced", "进阶"),
+    ("library", "曲库", "library"),
+    ("compose", "谱曲", "compose"),
+    ("advanced", "进阶", "advanced"),
 )
 
 
@@ -71,14 +72,18 @@ class MainWindow(tk.Tk):
 
     def __init__(self) -> None:
         super().__init__()
+        # 外观要在建任何控件之前定下来：各页面建控件时直接读配色
+        self.settings = AppSettings.load()
+        self.theme_name = set_appearance(self.settings.appearance)
+        self.restart_requested = False
         self.title(f"{APP_NAME} — {APP_SUB}")
-        self.geometry("1120x740")
-        self.minsize(880, 580)
+        self.geometry("1160x760")
+        self.minsize(900, 600)
         self.configure(bg=Palette["bg"])
         apply_theme(self)
+        self._dark_title_bar()
 
         # ---------------- 共享状态 ----------------
-        self.settings = AppSettings.load()
         self.layout: Layout = self.settings.to_layout()
         self.library = TuneLibrary(LIBRARY_DIR)
         self.preview = Preview()
@@ -128,49 +133,71 @@ class MainWindow(tk.Tk):
         self.settings.installed_presets = True
         self.settings.save()
 
+    def _dark_title_bar(self) -> None:
+        """深色外观时把 Windows 的标题栏也换成深色（Win10 1809+ / Win11 才有，别的系统什么都不做）。"""
+        if sys.platform != "win32" or self.theme_name != "dark":
+            return
+        try:
+            self.update_idletasks()
+            hwnd = ctypes.windll.user32.GetParent(self.winfo_id()) or self.winfo_id()
+            value = ctypes.c_int(1)
+            for attribute in (20, 19):          # DWMWA_USE_IMMERSIVE_DARK_MODE（新 / 旧编号）
+                if ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, attribute, ctypes.byref(value),
+                                                               ctypes.sizeof(value)) == 0:
+                    break
+        except (AttributeError, OSError):
+            pass
+
     def _build(self) -> None:
-        self.grid_rowconfigure(1, weight=1)
-        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=1)
 
         self._build_nav()
         self._build_pages()
         self._build_bottom()
 
     def _build_nav(self) -> None:
-        nav = tk.Frame(self, bg=Palette["panel"], height=54)
-        nav.grid(row=0, column=0, sticky="ew")
-        nav.grid_propagate(False)
+        P = Palette
+        side = tk.Frame(self, bg=P["panel_alt"], width=px(184))
+        side.grid(row=0, column=0, rowspan=2, sticky="ns")
+        side.pack_propagate(False)
+        tk.Frame(side, bg=P["border"], width=1).pack(side=tk.RIGHT, fill=tk.Y)
+        inner = tk.Frame(side, bg=P["panel_alt"])
+        inner.pack(fill=tk.BOTH, expand=True, padx=px(10), pady=(px(18), px(12)))
 
-        make_label(nav, APP_NAME, bold=True, size=13).pack(side=tk.LEFT, padx=(16, 20), pady=14)
+        tk.Label(inner, text=APP_NAME, font=title_font(17), bg=P["panel_alt"], fg=P["text"],
+                 anchor="w").pack(fill=tk.X, padx=px(10))
+        make_label(inner, "三角洲行动 · 口琴", size=8, fg=P["text_muted"], anchor="w").pack(
+            fill=tk.X, padx=px(10), pady=(px(2), px(18)))
 
-        self._tab_buttons: Dict[str, tk.Button] = {}
-        for key, label in TABS:
-            button = tk.Button(
-                nav, text=label, command=lambda k=key: self.show_page(k),
-                bg=Palette["panel"], fg=Palette["text_dim"],
-                activebackground=Palette["panel_alt"], activeforeground=Palette["text"],
-                relief=tk.FLAT, bd=0, padx=16, pady=6, cursor="hand2",
-                font=("Microsoft YaHei UI", 10), highlightthickness=0,
-            )
-            button.pack(side=tk.LEFT, padx=2, pady=10)
-            add_hover(button)
+        def nav_button(key: str, label: str, icon_name: str) -> RoundButton:
+            button = RoundButton(inner, text=label, icon_name=icon_name, kind="nav", anchor="w",
+                                 height=36, size=10, padx=10, command=lambda: self.show_page(key))
             self._tab_buttons[key] = button
+            return button
 
-        # 帮助按钮放最右边，随时能翻出使用步骤
-        make_button(nav, " ? ", self.show_guide, kind="ghost").pack(
-            side=tk.RIGHT, padx=(4, 14), pady=10)
+        self._tab_buttons: Dict[str, RoundButton] = {}
+        for key, label, icon_name in TABS:
+            nav_button(key, label, icon_name).pack(fill=tk.X, pady=px(1))
 
-        # 全局停止按钮：任何时候都能按到，出问题不用去翻页面
-        self.btn_stop = make_button(nav, "■  停止演奏  (F8)", self.stop, kind="ghost")
-        self.btn_stop.pack(side=tk.RIGHT, padx=(4, 4), pady=10)
+        tk.Frame(inner, bg=P["panel_alt"]).pack(fill=tk.BOTH, expand=True)
+
+        # 演奏中的状态 + 全局停止：任何页面都能按到，出问题不用去翻页面
+        self.lbl_nav_status = make_label(inner, "", dim=True, anchor="w")
+        self.lbl_nav_status.pack(fill=tk.X, padx=px(10), pady=(0, px(4)))
+        self.btn_stop = make_button(inner, "停止演奏", self.stop, kind="danger", icon_name="stop")
+        self.btn_stop.pack(fill=tk.X, pady=(0, px(12)))
         self.btn_stop.configure(state=tk.DISABLED)
 
-        self.lbl_nav_status = make_label(nav, "", dim=True)
-        self.lbl_nav_status.pack(side=tk.RIGHT, padx=12, pady=14)
+        nav_button("settings", "设置", "settings").pack(fill=tk.X, pady=px(1))
+        RoundButton(inner, text="使用步骤", icon_name="help", kind="nav", anchor="w", height=36, size=10,
+                    padx=10, command=self.show_guide).pack(fill=tk.X, pady=px(1))
+        make_label(inner, "F6 开始 / 暂停　F8 停止", size=8, fg=P["text_muted"], anchor="w").pack(
+            fill=tk.X, padx=px(10), pady=(px(10), 0))
 
     def _build_pages(self) -> None:
         holder = tk.Frame(self, bg=Palette["bg"])
-        holder.grid(row=1, column=0, sticky="nsew")
+        holder.grid(row=0, column=1, sticky="nsew")
         holder.grid_rowconfigure(0, weight=1)
         holder.grid_columnconfigure(0, weight=1)
 
@@ -192,24 +219,23 @@ class MainWindow(tk.Tk):
         self.show_page("library")
 
     def _build_bottom(self) -> None:
-        bottom = tk.Frame(self, bg=Palette["panel"])
-        bottom.grid(row=2, column=0, sticky="ew")
-        bottom.grid_columnconfigure(1, weight=1)
+        P = Palette
+        bottom = tk.Frame(self, bg=P["bg"])
+        bottom.grid(row=1, column=1, sticky="ew")
+        bottom.grid_columnconfigure(0, weight=1)
+        tk.Frame(bottom, bg=P["border"], height=1).grid(row=0, column=0, sticky="ew")
 
-        self.lbl_status = make_label(bottom, "就绪", bg=Palette["panel"])
-        self.lbl_status.grid(row=0, column=0, sticky="w", padx=12, pady=(5, 0))
-
-        self.hint = make_label(bottom, "F6 开始/暂停　F8 停止", dim=True, bg=Palette["panel"])
-        self.hint.grid(row=0, column=2, sticky="e", padx=12, pady=(5, 0))
+        self.lbl_status = make_label(bottom, "就绪", dim=True, anchor="w")
+        self.lbl_status.grid(row=1, column=0, sticky="ew", padx=px(20), pady=(px(6), 0))
 
         # 注意：控件叫 log_view，方法叫 log()。
         # 早先两者同名，结果 self.log 被控件覆盖，调用 self.log(...) 直接炸。
         self.log_view = tk.Text(
-            bottom, height=3, bg=Palette["panel"], fg=Palette["text_dim"],
-            relief=tk.FLAT, bd=0, font=("Consolas", 9), wrap="none", padx=10, pady=2,
-            insertbackground=Palette["text"],
+            bottom, height=2, bg=P["bg"], fg=P["text_muted"], relief=tk.FLAT, bd=0,
+            font=mono_font(8), wrap="none", padx=px(20), pady=px(2), insertbackground=P["text"],
+            selectbackground=P["sel_bg"], highlightthickness=0,
         )
-        self.log_view.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(2, 4))
+        self.log_view.grid(row=2, column=0, sticky="ew", pady=(px(2), px(8)))
         self.log_view.configure(state=tk.DISABLED)
 
     # ================================================================== #
@@ -230,12 +256,7 @@ class MainWindow(tk.Tk):
         self._active_page = key
 
         for name, button in self._tab_buttons.items():
-            active = name == key
-            button.configure(
-                fg=Palette["accent"] if active else Palette["text_dim"],
-                bg=Palette["panel_alt"] if active else Palette["panel"],
-                font=("Microsoft YaHei UI", 10, "bold" if active else "normal"),
-            )
+            button.configure(kind="nav_on" if name == key else "nav")
 
         if key == "settings":
             self.page_settings.on_show()
@@ -618,6 +639,11 @@ class MainWindow(tk.Tk):
                      + "、".join(self._upgraded_presets))
         self.log(f"设置文件：{settings_path()}")
 
+    def restart(self) -> None:
+        """换了外观：关掉窗口再按新配色建一遍（演奏会停下，设置已经存好）。"""
+        self.restart_requested = True
+        self.on_close()
+
     def on_close(self) -> None:
         try:
             self.player.stop()
@@ -638,5 +664,9 @@ def _mmss(ms: float) -> str:
 
 
 def run() -> None:
-    """启动界面。"""
-    MainWindow().mainloop()
+    """启动界面（换外观时窗口会在同一个进程里重建）。"""
+    while True:
+        window = MainWindow()
+        window.mainloop()
+        if not window.restart_requested:
+            break

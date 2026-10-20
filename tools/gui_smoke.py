@@ -13,6 +13,10 @@
 关键点：跑之前会把播放器的注入器换成 DrySender（只记录、不真按键），
 所以**这个测试不会往你的系统里发任何按键**，可以放心跑。
 
+测试里会把音键临时改成 A S D F G H J K，检查"改键位"这条路走得通。
+这些改动都落在一个临时文件夹里（KOUQIN_DATA_DIR），跑完就删，
+**你自己的设置（默认 Z X C V B N M 逗号）和曲库一点都不会动**，测试中途被打断也一样。
+
 用法：
     python tools/gui_smoke.py
 """
@@ -27,6 +31,13 @@ import tkinter as tk
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
+
+# 必须在导入 kouqin 之前设好：设置和曲库都放进临时文件夹
+import shutil
+import tempfile
+
+_SANDBOX = tempfile.mkdtemp(prefix="kouqin-smoke-")
+os.environ["KOUQIN_DATA_DIR"] = _SANDBOX
 
 
 class DrySender:
@@ -452,10 +463,24 @@ def main() -> int:
     print("=" * 62)
     print("界面冒烟测试（使用假注入器，不会真的发按键）")
     print("=" * 62)
-    smoke = Smoke()
-    smoke.run()
-    smoke.window.mainloop()
-    return 0
+    try:
+        from kouqin.layout import BASE_KEYS
+        from kouqin.settings import AppSettings, settings_path
+        # 先确认：设置文件真的在临时文件夹里，而且一开始就是游戏默认的键位
+        inside = os.path.abspath(settings_path()).startswith(os.path.abspath(_SANDBOX))
+        print(f"  [{'通过' if inside else '失败'}] 测试数据放在临时文件夹 — {_SANDBOX}")
+        if not inside:
+            return 1
+        defaults = tuple(AppSettings().keys) == tuple(BASE_KEYS) == ("z", "x", "c", "v", "b", "n", "m", ",")
+        print(f"  [{'通过' if defaults else '失败'}] 默认音键是 Z X C V B N M 逗号")
+        if not defaults:
+            return 1
+        smoke = Smoke()
+        smoke.run()
+        smoke.window.mainloop()
+        return 0
+    finally:
+        shutil.rmtree(_SANDBOX, ignore_errors=True)
 
 
 if __name__ == "__main__":

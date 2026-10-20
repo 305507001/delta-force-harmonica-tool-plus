@@ -1,38 +1,150 @@
 """
-界面配色与控件工厂。
+界面配色、字体与控件工厂。
 
 统一放在这里，好处是改一次全局变样，不用在业务代码里到处找颜色字符串。
-整体走深灰蓝底色 + 青色强调，长时间盯着不刺眼，也方便在游戏旁边放一块。
+
+风格是暖色调的"纸面"：浅色是米白底、白卡片、陶土色强调；深色是暖灰底、深卡片。
+两套配色的键名完全一样，启动时按设置（或系统的浅色 / 深色）选一套灌进 :data:`Palette`，
+各页面建控件时读 ``Palette["..."]`` 就行，不用关心现在是哪一套。
+
+两种演奏方式各有一个颜色，贯穿整个界面：
+    陶土色 accent  「演奏」——程序替你按
+    蓝色   guide   「跟弹」——你自己按
+
+游戏里的悬浮窗不跟这里走：它叠在游戏画面上，永远是深色（见 overlay.py）。
 """
 
 from __future__ import annotations
 
+import os
+import sys
 import tkinter as tk
+from tkinter import font as tkfont
 from tkinter import ttk
-from typing import Optional
+from typing import Dict, Optional, Tuple
 
 __all__ = [
-    "Palette", "apply_theme", "make_button", "make_label", "make_combobox", "make_spinbox",
-    "make_check", "make_slider", "enable_wheel_scroll", "blend", "add_hover",
+    "Palette", "THEMES", "apply_theme", "set_appearance", "resolve_appearance", "is_dark",
+    "make_button", "make_label", "make_combobox", "make_spinbox", "make_check", "make_slider",
+    "enable_wheel_scroll", "blend", "add_hover", "px", "ui_font", "title_font", "mono_font",
+    "icon", "octave_colors", "FONT_UI",
 ]
 
-# 想换皮肤改这里就够了
-Palette = {
-    "bg": "#11141b",
-    "panel": "#181d26",
-    "panel_alt": "#1e242f",
-    "border": "#2a3240",
-    "text": "#d7dee9",
-    "text_dim": "#7f8b9c",
-    "accent": "#35d0a5",
-    "accent_dark": "#1f8a6c",
-    "guide": "#2b9fd8",          # 跟弹模式的主题色（蓝），和"自动演奏"的青绿区分开
-    "guide_dark": "#173247",
-    "warn": "#e0a04a",
-    "danger": "#e2606a",
-    "entry_bg": "#0e1118",
-    "sel": "#2b6cff",
+# --------------------------------------------------------------------------- #
+# 两套配色
+# --------------------------------------------------------------------------- #
+
+THEMES: Dict[str, Dict[str, str]] = {
+    "light": {
+        "bg": "#faf9f5",            # 页面底色
+        "panel": "#ffffff",         # 卡片、列表、输入框
+        "panel_alt": "#f0eee6",     # 侧栏、分段控件的底
+        "hover": "#ebe8df",         # 悬停
+        "selected": "#e4e1d7",      # 侧栏选中
+        "border": "#e6e3da",        # 细分隔线
+        "border_strong": "#d3cfc3", # 按钮、输入框的描边
+        "text": "#1f1e1d",
+        "text_dim": "#6b6963",
+        "text_muted": "#9d9b93",
+        "accent": "#c96442",        # 陶土色：演奏 / 主要操作
+        "accent_dark": "#b4563a",   # 陶土色按下 / 悬停
+        "accent_soft": "#f6e6de",   # 陶土色浅底（标签）
+        "accent_text": "#a3472b",   # 浅底上的陶土色字
+        "on_accent": "#ffffff",
+        "guide": "#2d6cb5",         # 蓝：跟弹
+        "guide_soft": "#e3edf8",
+        "guide_text": "#245a97",
+        "warn": "#a8650f",
+        "warn_soft": "#fbf0dc",
+        "danger": "#b83a35",
+        "danger_soft": "#fbe9e7",
+        "success": "#3b6d11",
+        "entry_bg": "#ffffff",
+        "sel": "#2d6cb5",           # 选中描边（谱曲格子等）
+        "sel_bg": "#d6e4f5",        # 文字选中底色
+    },
+    "dark": {
+        "bg": "#262624",
+        "panel": "#30302e",
+        "panel_alt": "#1f1e1d",
+        "hover": "#3a3a37",
+        "selected": "#3d3d3a",
+        "border": "#3c3b38",
+        "border_strong": "#54534e",
+        "text": "#f5f4ef",
+        "text_dim": "#b4b2a9",
+        "text_muted": "#86847c",
+        "accent": "#d97757",
+        "accent_dark": "#c4664a",
+        "accent_soft": "#4a3027",
+        "accent_text": "#f0a487",
+        "on_accent": "#ffffff",
+        "guide": "#6ea8e8",
+        "guide_soft": "#22344a",
+        "guide_text": "#9cc4f0",
+        "warn": "#e0a04a",
+        "warn_soft": "#43341c",
+        "danger": "#e8776f",
+        "danger_soft": "#472624",
+        "success": "#97c459",
+        "entry_bg": "#262624",
+        "sel": "#6ea8e8",
+        "sel_bg": "#33507a",
+    },
 }
+
+#: 当前生效的配色。启动时 :func:`set_appearance` 会把选中的那一套灌进来
+Palette: Dict[str, str] = dict(THEMES["light"])
+Palette["_name"] = "light"
+
+#: 谱曲格子 / 选音面板的八度配色：(底色, 字色)。浅色是浅底深字，深色是深底亮字
+_OCTAVES = {
+    "light": {-1: ("#e2ecf8", "#1f5fa0"), 0: ("#e5f0df", "#3d6b1f"),
+              1: ("#fbebd5", "#94540e"), 2: ("#eee8fa", "#5b46ae")},
+    "dark": {-1: ("#1d3a4d", "#79c7ef"), 0: ("#1c4034", "#5fe0ab"),
+             1: ("#4a3a1c", "#f0b95c"), 2: ("#3d2447", "#c98cf0")},
+}
+
+
+def resolve_appearance(choice: str) -> str:
+    """``system`` / ``light`` / ``dark`` → 实际用 light 还是 dark。"""
+    forced = os.environ.get("KOUQIN_THEME", "").strip().lower()
+    if forced in ("light", "dark"):
+        return forced
+    if choice in ("light", "dark"):
+        return choice
+    return "dark" if _system_is_dark() else "light"
+
+
+def _system_is_dark() -> bool:
+    """Windows「应用模式」是不是深色（读注册表，读不到就当浅色）。"""
+    if sys.platform != "win32":
+        return False
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as key:
+            value, _kind = winreg.QueryValueEx(key, "AppsUseLightTheme")
+        return int(value) == 0
+    except OSError:
+        return False
+
+
+def set_appearance(choice: str) -> str:
+    """选定配色（在建任何控件之前调用）。返回实际生效的 light / dark。"""
+    name = resolve_appearance(choice)
+    Palette.clear()
+    Palette.update(THEMES[name])
+    Palette["_name"] = name
+    return name
+
+
+def is_dark() -> bool:
+    return Palette.get("_name") == "dark"
+
+
+def octave_colors() -> Dict[int, Tuple[str, str]]:
+    return _OCTAVES["dark" if is_dark() else "light"]
 
 
 def blend(color: str, other: str, amount: float) -> str:
@@ -43,12 +155,164 @@ def blend(color: str, other: str, amount: float) -> str:
     return "#" + "".join(f"{round(x + (y - x) * amount):02x}" for x, y in zip(a, b))
 
 
+# --------------------------------------------------------------------------- #
+# 尺寸与字体
+# --------------------------------------------------------------------------- #
+
+_SCALE = 1.0
+
+#: 界面字体。apply_theme 时按系统里实际有的字体定下来
+FONT_UI = "Microsoft YaHei UI"
+_FONT_TITLE = "Microsoft YaHei UI"
+_FONT_MONO = "Consolas"
+_ICON_FONT: Optional[str] = None
+
+#: 标题用的衬线字体，按顺序找第一个装了的（Windows 自带的是宋体）
+_TITLE_CANDIDATES = ("Source Han Serif SC", "Noto Serif SC", "思源宋体", "Songti SC",
+                     "STZhongsong", "华文中宋", "SimSun", "宋体")
+_UI_CANDIDATES = ("Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC")
+_MONO_CANDIDATES = ("Cascadia Mono", "Consolas", "Menlo", "Courier New")
+_ICON_CANDIDATES = ("Segoe Fluent Icons", "Segoe MDL2 Assets")
+
+#: 图标：(Segoe 图标字体里的码位, 没有图标字体时的替代文字)
+_ICONS = {
+    "library": ("", "♪"),
+    "compose": ("", "✎"),
+    "advanced": ("", "⋯"),
+    "settings": ("", "⚙"),
+    "help": ("", "?"),
+    "edit": ("", "编辑"),
+    "delete": ("", "删除"),
+    "play": ("", "▶"),
+    "pause": ("", "⏸"),
+    "stop": ("", "■"),
+    "add": ("", "＋"),
+    "import": ("", "导入"),
+    "refresh": ("", "⟳"),
+    "search": ("", "⌕"),
+    "download": ("", "存"),
+    "link": ("", "↗"),
+}
+
+
+def px(value: float) -> int:
+    """按屏幕缩放换算像素。"""
+    return int(round(value * _SCALE))
+
+
+def ui_font(size: int = 10, bold: bool = False) -> tuple:
+    return (FONT_UI, size, "bold") if bold else (FONT_UI, size)
+
+
+def title_font(size: int = 20) -> tuple:
+    return (_FONT_TITLE, size)
+
+
+def mono_font(size: int = 9) -> tuple:
+    return (_FONT_MONO, size)
+
+
+def icon(name: str) -> Tuple[Optional[str], str]:
+    """``(图标字体, 字符)``；没有图标字体时字体为 None、字符是替代文字。"""
+    glyph, fallback = _ICONS.get(name, ("", name))
+    if _ICON_FONT:
+        return _ICON_FONT, glyph
+    return None, fallback
+
+
+def _pick(families, candidates) -> Optional[str]:
+    lower = {f.lower(): f for f in families}
+    for name in candidates:
+        if name.lower() in lower:
+            return lower[name.lower()]
+    return None
+
+
+# --------------------------------------------------------------------------- #
+# 全局主题
+# --------------------------------------------------------------------------- #
+
+
+def apply_theme(root: tk.Misc) -> ttk.Style:
+    """定字体、刷 ttk 控件的颜色（Windows 默认主题不支持改色，所以切到 clam）。"""
+    global FONT_UI, _FONT_TITLE, _FONT_MONO, _ICON_FONT, _SCALE
+    try:
+        _SCALE = max(1.0, root.winfo_fpixels("1i") / 96.0)
+    except tk.TclError:
+        _SCALE = 1.0
+    try:
+        families = tkfont.families(root)
+    except tk.TclError:
+        families = ()
+    FONT_UI = _pick(families, _UI_CANDIDATES) or FONT_UI
+    _FONT_TITLE = _pick(families, _TITLE_CANDIDATES) or FONT_UI
+    _FONT_MONO = _pick(families, _MONO_CANDIDATES) or "Courier"
+    _ICON_FONT = _pick(families, _ICON_CANDIDATES)
+
+    P = Palette
+    style = ttk.Style(root)
+    try:
+        style.theme_use("clam")
+    except tk.TclError:
+        pass
+
+    style.configure(".", background=P["panel"], foreground=P["text"], fieldbackground=P["entry_bg"],
+                    bordercolor=P["border_strong"], lightcolor=P["panel"], darkcolor=P["panel"],
+                    troughcolor=P["panel_alt"], focuscolor=P["guide"], selectbackground=P["sel_bg"],
+                    selectforeground=P["text"], insertcolor=P["text"], font=ui_font(9))
+    for name in ("TCombobox", "TSpinbox"):
+        style.configure(name, fieldbackground=P["entry_bg"], background=P["panel"], foreground=P["text"],
+                        arrowcolor=P["text_dim"], bordercolor=P["border_strong"],
+                        lightcolor=P["entry_bg"], darkcolor=P["entry_bg"], borderwidth=1, padding=5,
+                        arrowsize=px(12))
+        style.map(name, fieldbackground=[("readonly", P["entry_bg"])],
+                  foreground=[("readonly", P["text"]), ("disabled", P["text_muted"])],
+                  background=[("active", P["hover"]), ("pressed", P["hover"])],
+                  bordercolor=[("focus", P["guide"]), ("hover", P["text_muted"])],
+                  lightcolor=[("focus", P["entry_bg"])], darkcolor=[("focus", P["entry_bg"])],
+                  arrowcolor=[("disabled", P["text_muted"])])
+    # 下拉框弹出的列表是个普通 Listbox，只能用 option 数据库改色
+    root.option_add("*TCombobox*Listbox.background", P["panel"])
+    root.option_add("*TCombobox*Listbox.foreground", P["text"])
+    root.option_add("*TCombobox*Listbox.selectBackground", P["sel_bg"])
+    root.option_add("*TCombobox*Listbox.selectForeground", P["text"])
+    root.option_add("*TCombobox*Listbox.font", ui_font(9))
+    root.option_add("*TCombobox*Listbox.borderWidth", 0)
+
+    # 细滚动条：只要滑道和滑块，不要两头的箭头
+    for orient in ("Vertical", "Horizontal"):
+        name = f"{orient}.TScrollbar"
+        style.layout(name, [(f"{orient}.Scrollbar.trough", {"sticky": "nswe", "children": [
+            (f"{orient}.Scrollbar.thumb", {"expand": "1", "sticky": "nswe"})]})])
+        style.configure(name, troughcolor=P["bg"], background=P["border_strong"],
+                        bordercolor=P["bg"], lightcolor=P["border_strong"], darkcolor=P["border_strong"],
+                        arrowsize=px(9), gripcount=0, relief="flat")
+        style.map(name, background=[("active", P["text_muted"]), ("pressed", P["text_muted"])],
+                  lightcolor=[("active", P["text_muted"])], darkcolor=[("active", P["text_muted"])])
+
+    style.configure("TProgressbar", background=P["accent"], troughcolor=P["panel_alt"],
+                    bordercolor=P["panel_alt"], lightcolor=P["accent"], darkcolor=P["accent"])
+
+    # 在线曲库的表格
+    style.layout("Treeview", [("Treeview.treearea", {"sticky": "nswe"})])
+    style.configure("Treeview", background=P["panel"], fieldbackground=P["panel"], foreground=P["text"],
+                    rowheight=px(34), borderwidth=0, relief="flat", font=ui_font(10))
+    style.map("Treeview", background=[("selected", P["guide_soft"])],
+              foreground=[("selected", P["text"])])
+    style.configure("Treeview.Heading", background=P["panel"], foreground=P["text_dim"], relief="flat",
+                    borderwidth=0, bordercolor=P["border"], lightcolor=P["panel"], darkcolor=P["border"],
+                    padding=(px(8), px(6)), font=ui_font(9))
+    style.map("Treeview.Heading", background=[("active", P["hover"])],
+              foreground=[("active", P["text"])])
+    return style
+
+
 def add_hover(widget: tk.Widget) -> None:
     """
-    鼠标移上去稍微提亮一点。
+    普通 tk.Button 鼠标移上去稍微变一点。
 
-    Windows 下的 tk.Button 没有悬停效果，一排按钮看不出哪个能点。
-    提亮色在移入时按"当前底色"现算，所以别处改了按钮底色（比如导航页签切换）也不会被冲掉。
+    圆角按钮（:class:`gui.widgets.RoundButton`）自己会处理悬停，不用调这个。
+    提亮色在移入时按"当前底色"现算，所以别处改了按钮底色也不会被冲掉。
     """
 
     def enter(_event) -> None:
@@ -56,7 +320,7 @@ def add_hover(widget: tk.Widget) -> None:
             return
         base = widget.cget("bg")
         widget._kq_base = base
-        widget._kq_hover = blend(base, "#ffffff", 0.08)
+        widget._kq_hover = blend(base, "#000000" if not is_dark() else "#ffffff", 0.05)
         widget.configure(bg=widget._kq_hover)
 
     def leave(_event) -> None:
@@ -69,102 +333,24 @@ def add_hover(widget: tk.Widget) -> None:
     widget.bind("<Leave>", leave, add="+")
 
 
-def apply_theme(root: tk.Misc) -> ttk.Style:
-    """把 ttk 控件也刷成深色（Windows 默认主题不支持改色，所以切到 clam）。"""
-    style = ttk.Style(root)
-    try:
-        style.theme_use("clam")
-    except tk.TclError:
-        pass
-
-    style.configure(
-        ".",
-        background=Palette["panel"],
-        foreground=Palette["text"],
-        fieldbackground=Palette["entry_bg"],
-        bordercolor=Palette["border"],
-        lightcolor=Palette["panel_alt"],
-        darkcolor=Palette["panel"],
-        troughcolor=Palette["panel_alt"],
-        focuscolor=Palette["accent"],
-    )
-    style.configure("TCombobox",
-                    fieldbackground=Palette["entry_bg"],
-                    background=Palette["panel_alt"],
-                    foreground=Palette["text"],
-                    arrowcolor=Palette["text_dim"],
-                    borderwidth=1,
-                    padding=4)
-    style.map("TCombobox",
-              fieldbackground=[("readonly", Palette["entry_bg"])],
-              foreground=[("readonly", Palette["text"])],
-              background=[("active", Palette["border"])])
-    style.configure("TSpinbox",
-                    fieldbackground=Palette["entry_bg"],
-                    background=Palette["panel_alt"],
-                    foreground=Palette["text"],
-                    arrowcolor=Palette["text_dim"],
-                    borderwidth=1,
-                    padding=4)
-    style.configure("TScrollbar",
-                    background=Palette["panel_alt"],
-                    troughcolor=Palette["panel"],
-                    bordercolor=Palette["panel"],
-                    arrowcolor=Palette["text_dim"])
-    style.configure("TProgressbar",
-                    background=Palette["accent"],
-                    troughcolor=Palette["panel_alt"],
-                    bordercolor=Palette["panel"],
-                    lightcolor=Palette["accent"],
-                    darkcolor=Palette["accent_dark"])
-    style.configure("Vertical.TScrollbar", background=Palette["panel_alt"])
-    # 在线曲库的表格
-    style.configure("Treeview", background=Palette["panel"], fieldbackground=Palette["panel"],
-                    foreground=Palette["text"], rowheight=30, borderwidth=0,
-                    font=("Microsoft YaHei UI", 10))
-    style.map("Treeview", background=[("selected", Palette["guide_dark"])],
-              foreground=[("selected", "#ffffff")])
-    style.configure("Treeview.Heading", background=Palette["panel_alt"], foreground=Palette["text_dim"],
-                    relief="flat", borderwidth=0, font=("Microsoft YaHei UI", 9, "bold"))
-    style.map("Treeview.Heading", background=[("active", Palette["border"])])
-    return style
+# --------------------------------------------------------------------------- #
+# 控件工厂
+# --------------------------------------------------------------------------- #
 
 
 def make_button(master, text: str, command=None, kind: str = "normal",
-                width: Optional[int] = None, **kwargs) -> tk.Button:
-    """造一个统一样式的按钮。``kind`` 决定强调程度。"""
-    colors = {
-        "normal": (Palette["panel_alt"], Palette["text"], Palette["border"]),
-        "accent": (Palette["accent_dark"], "#eafff8", Palette["accent"]),
-        "guide": (Palette["guide_dark"], "#d6efff", Palette["guide"]),
-        "danger": ("#4a2228", "#ffd9dd", Palette["danger"]),
-        "ghost": (Palette["panel"], Palette["text_dim"], Palette["border"]),
-    }[kind]
+                width: Optional[int] = None, icon_name: Optional[str] = None, **kwargs):
+    """
+    造一个统一样式的圆角按钮（:class:`gui.widgets.RoundButton`）。
 
-    button = tk.Button(
-        master,
-        text=text,
-        command=command,
-        bg=colors[0],
-        fg=colors[1],
-        activebackground=Palette["border"],
-        activeforeground=Palette["text"],
-        disabledforeground="#4a5464",
-        highlightthickness=1,
-        highlightbackground=colors[2],
-        highlightcolor=Palette["accent"],
-        relief=tk.FLAT,
-        bd=0,
-        padx=10,
-        pady=4,
-        cursor="hand2",
-        font=("Microsoft YaHei UI", 9),
-        **kwargs,
-    )
-    if width:
-        button.configure(width=width)
-    add_hover(button)
-    return button
+    ``kind``：normal 普通 / accent 陶土色实心（演奏、保存这类主要操作）/ guide 蓝字（跟弹）/
+    danger 红字 / ghost 无底色。
+    """
+    from .widgets import RoundButton
+    for unused in ("padx", "pady", "font", "fg", "relief", "bd"):
+        kwargs.pop(unused, None)
+    return RoundButton(master, text=text, command=command, kind=kind, width=width,
+                       icon_name=icon_name, **kwargs)
 
 
 def make_label(master, text: str = "", dim: bool = False, size: int = 9,
@@ -175,11 +361,12 @@ def make_label(master, text: str = "", dim: bool = False, size: int = 9,
     ``text`` 可以省略——如果调用方传了 ``textvariable``，
     标签内容就交给那个变量驱动（状态栏就是这么用的）。
     """
+    bg = kwargs.pop("bg", None) or _bg_of(master)
     label = tk.Label(
         master,
-        bg=kwargs.pop("bg", Palette["panel"]),
-        fg=Palette["text_dim"] if dim else Palette["text"],
-        font=("Microsoft YaHei UI", size, "bold" if bold else "normal"),
+        bg=bg,
+        fg=kwargs.pop("fg", Palette["text_dim"] if dim else Palette["text"]),
+        font=kwargs.pop("font", ui_font(size, bold)),
         **kwargs,
     )
     if text:
@@ -187,53 +374,44 @@ def make_label(master, text: str = "", dim: bool = False, size: int = 9,
     return label
 
 
+def _bg_of(widget) -> str:
+    try:
+        return str(widget.cget("bg"))
+    except (tk.TclError, AttributeError):
+        return Palette["panel"]
+
+
 def make_combobox(master, values, variable, width: int = 10, readonly: bool = True):
-    box = ttk.Combobox(
-        master,
-        values=list(values),
-        textvariable=variable,
-        width=width,
-        state="readonly" if readonly else "normal",
-        font=("Microsoft YaHei UI", 9),
-    )
-    return box
+    return ttk.Combobox(master, values=list(values), textvariable=variable, width=width,
+                        state="readonly" if readonly else "normal", font=ui_font(9))
 
 
 def make_spinbox(master, variable, frm: float, to: float, increment: float = 1.0, width: int = 6):
-    return ttk.Spinbox(
-        master,
-        from_=frm,
-        to=to,
-        increment=increment,
-        textvariable=variable,
-        width=width,
-        font=("Microsoft YaHei UI", 9),
-        justify="center",
-    )
+    return ttk.Spinbox(master, from_=frm, to=to, increment=increment, textvariable=variable,
+                       width=width, font=ui_font(9), justify="center")
 
 
 def make_check(master, text: str, variable, command=None, bg: Optional[str] = None) -> tk.Checkbutton:
-    """深色风格的勾选框。"""
-    bg = bg or Palette["panel"]
+    """勾选框。"""
+    bg = bg or _bg_of(master)
     return tk.Checkbutton(
         master, text=text, variable=variable, command=command,
         bg=bg, fg=Palette["text"], selectcolor=Palette["entry_bg"],
         activebackground=bg, activeforeground=Palette["text"],
-        font=("Microsoft YaHei UI", 9), bd=0, highlightthickness=0,
-        cursor="hand2", anchor="w",
+        font=ui_font(9), bd=0, highlightthickness=0, cursor="hand2", anchor="w",
     )
 
 
 def make_slider(master, variable, frm: float, to: float, resolution: float = 1.0,
                 length: int = 160, command=None, bg: Optional[str] = None) -> tk.Scale:
-    """深色风格的横向滑块（不显示数值，数值由调用方用标签显示）。"""
-    bg = bg or Palette["panel"]
+    """横向滑块（不显示数值，数值由调用方用标签显示）。"""
+    bg = bg or _bg_of(master)
     return tk.Scale(
         master, variable=variable, from_=frm, to=to, resolution=resolution,
-        orient=tk.HORIZONTAL, length=length, showvalue=False,
-        command=command, bg=bg, fg=Palette["text"], troughcolor=Palette["entry_bg"],
-        activebackground=Palette["accent"], highlightthickness=0, bd=0,
-        sliderrelief=tk.FLAT, sliderlength=18, width=10, cursor="hand2",
+        orient=tk.HORIZONTAL, length=px(length), showvalue=False,
+        command=command, bg=Palette["accent"], fg=Palette["text"], troughcolor=Palette["panel_alt"],
+        activebackground=Palette["accent_dark"], highlightthickness=0, bd=0,
+        sliderrelief=tk.FLAT, sliderlength=px(16), width=px(8), cursor="hand2",
     )
 
 

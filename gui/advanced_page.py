@@ -32,7 +32,7 @@ from kouqin.tune import notes_to_tune
 
 from .jianpu_editor import JianpuEditor
 from .pianoroll import PianoRoll
-from .theme import Palette, make_button, make_combobox, make_label, make_spinbox
+from .theme import Palette, make_button, make_check, make_combobox, make_label, make_spinbox, px, title_font, ui_font
 
 #: 超音域策略在界面上的显示名
 _FOLD_CHOICES = {
@@ -74,71 +74,68 @@ class AdvancedPage(tk.Frame):
         self._build_footer()
 
     def _build_toolbar(self) -> None:
-        bar = tk.Frame(self, bg=Palette["panel"], height=46)
-        bar.grid(row=0, column=0, sticky="ew")
-        bar.grid_propagate(False)
+        P = Palette
+        head = tk.Frame(self, bg=P["bg"])
+        head.grid(row=0, column=0, sticky="ew", padx=px(28), pady=(px(24), px(12)))
+        tk.Label(head, text="进阶", font=title_font(22), bg=P["bg"], fg=P["text"], anchor="w").pack(fill=tk.X)
+        make_label(head, "导入 MIDI、用简谱写谱、在钢琴卷帘里改音；改好的旋律可以存进曲库", dim=True,
+                   anchor="w").pack(fill=tk.X, pady=(px(4), px(12)))
 
-        make_button(bar, "打开 MIDI", self.open_midi, kind="accent").pack(side=tk.LEFT, padx=(10, 4), pady=8)
-        make_button(bar, "简谱写谱", self.open_jianpu).pack(side=tk.LEFT, padx=4, pady=8)
+        bar = tk.Frame(head, bg=P["bg"])
+        bar.pack(fill=tk.X)
 
-        tk.Frame(bar, bg=Palette["border"], width=1).pack(side=tk.LEFT, fill=tk.Y, padx=10, pady=9)
+        make_button(bar, "打开 MIDI", self.open_midi, kind="accent").pack(side=tk.LEFT, padx=(0, 4))
+        make_button(bar, "简谱写谱", self.open_jianpu).pack(side=tk.LEFT, padx=4)
+
+        tk.Frame(bar, bg=Palette["border"], width=1).pack(side=tk.LEFT, fill=tk.Y, padx=10, pady=4)
 
         make_label(bar, "音轨").pack(side=tk.LEFT, padx=(0, 4))
         self.cmb_track = make_combobox(bar, [], self.var_track, width=22)
-        self.cmb_track.pack(side=tk.LEFT, pady=8)
+        self.cmb_track.pack(side=tk.LEFT)
         self.cmb_track.bind("<<ComboboxSelected>>", lambda e: self._on_track_change())
 
-        tk.Frame(bar, bg=Palette["border"], width=1).pack(side=tk.LEFT, fill=tk.Y, padx=10, pady=9)
+        tk.Frame(bar, bg=Palette["border"], width=1).pack(side=tk.LEFT, fill=tk.Y, padx=10, pady=4)
 
         make_label(bar, "倍速").pack(side=tk.LEFT, padx=(0, 4))
-        make_spinbox(bar, self.var_speed, 0.25, 4.0, 0.05, 5).pack(side=tk.LEFT, pady=8)
+        make_spinbox(bar, self.var_speed, 0.25, 4.0, 0.05, 5).pack(side=tk.LEFT)
 
         make_label(bar, "移调").pack(side=tk.LEFT, padx=(10, 4))
-        make_spinbox(bar, self.var_transpose, -24, 24, 1, 4).pack(side=tk.LEFT, pady=8)
-        make_button(bar, "自动贴合", self.auto_fit, kind="ghost").pack(side=tk.LEFT, padx=6, pady=8)
+        make_spinbox(bar, self.var_transpose, -24, 24, 1, 4).pack(side=tk.LEFT)
+        make_button(bar, "自动贴合", self.auto_fit, kind="ghost").pack(side=tk.LEFT, padx=6)
 
         make_label(bar, "超音域").pack(side=tk.LEFT, padx=(10, 4))
         combo = make_combobox(bar, list(_FOLD_CHOICES), self.var_fold, width=14)
-        combo.pack(side=tk.LEFT, pady=8)
+        combo.pack(side=tk.LEFT)
         combo.bind("<<ComboboxSelected>>", lambda e: self._update_stats())
 
-        tk.Checkbutton(
-            bar, text="0.1s 吸附", variable=self.var_snap,
-            command=lambda: self.roll.set_snap(self.var_snap.get()),
-            bg=Palette["panel"], fg=Palette["text_dim"], selectcolor=Palette["entry_bg"],
-            activebackground=Palette["panel"], activeforeground=Palette["text"],
-            font=("Microsoft YaHei UI", 9), bd=0, highlightthickness=0,
-        ).pack(side=tk.LEFT, padx=(12, 0))
+        make_check(bar, "0.1s 吸附", self.var_snap,
+                   command=lambda: self.roll.set_snap(self.var_snap.get())).pack(side=tk.LEFT, padx=(12, 0))
 
     def _build_roll(self) -> None:
         self.roll = PianoRoll(self, self.app.layout,
                               on_edited=self._on_edited,
                               on_select=self._on_select)
-        self.roll.grid(row=1, column=0, sticky="nsew")
+        self.roll.grid(row=1, column=0, sticky="nsew", padx=px(28))
 
     def _build_footer(self) -> None:
-        bar = tk.Frame(self, bg=Palette["panel_alt"])
-        bar.grid(row=2, column=0, sticky="ew")
+        bar = tk.Frame(self, bg=Palette["bg"])
+        bar.grid(row=2, column=0, sticky="ew", padx=px(28), pady=(px(10), px(14)))
 
-        make_button(bar, "试听这一段", self.toggle_preview, kind="ghost").pack(side=tk.LEFT, padx=(10, 4), pady=8)
-        self.lbl_stats = make_label(bar, "还没有载入乐谱", bg=Palette["panel_alt"], dim=True)
+        make_button(bar, "试听这一段", self.toggle_preview, kind="ghost", icon_name="play").pack(side=tk.LEFT)
+        self.lbl_stats = make_label(bar, "还没有载入乐谱", dim=True)
         self.lbl_stats.pack(side=tk.LEFT, padx=12)
 
-        make_button(bar, "▶  演奏这一段", self.play_current, kind="accent").pack(side=tk.RIGHT, padx=(4, 10), pady=8)
+        make_button(bar, "演奏这一段", self.play_current, kind="accent").pack(side=tk.RIGHT, padx=(6, 0))
         make_button(bar, "跟弹这一段", lambda: self.play_current(mode="guide"),
-                    kind="guide").pack(side=tk.RIGHT, padx=4, pady=8)
-        make_button(bar, "存进曲库", self.save_to_library, kind="ghost").pack(side=tk.RIGHT, padx=4, pady=8)
+                    kind="guide").pack(side=tk.RIGHT, padx=(6, 0))
+        make_button(bar, "存进曲库", self.save_to_library).pack(side=tk.RIGHT, padx=(6, 0))
 
-        export = tk.Menubutton(
-            bar, text="导出 ▾", bg=Palette["panel_alt"], fg=Palette["text"],
-            activebackground=Palette["border"], activeforeground=Palette["text"],
-            relief=tk.FLAT, bd=0, padx=12, pady=4, cursor="hand2",
-            font=("Microsoft YaHei UI", 9), highlightthickness=1,
-            highlightbackground=Palette["border"],
-        )
-        menu = tk.Menu(export, tearoff=0, bg=Palette["panel_alt"], fg=Palette["text"],
-                       activebackground=Palette["accent_dark"], activeforeground="#ffffff",
-                       bd=0, font=("Microsoft YaHei UI", 9))
+        export = make_button(bar, "导出 ▾", lambda: menu.tk_popup(export.winfo_rootx(),
+                                                                 export.winfo_rooty() + export.winfo_height()),
+                             kind="ghost")
+        menu = tk.Menu(export, tearoff=0, bg=Palette["panel"], fg=Palette["text"],
+                       activebackground=Palette["hover"], activeforeground=Palette["text"],
+                       bd=0, font=ui_font(9))
         menu.add_command(label="通用按键表 (.csv)", command=lambda: self._export("csv"))
         menu.add_command(label="罗技 G HUB 脚本 (.lua)", command=lambda: self._export("lua"))
         menu.add_command(label="结构化数据 (.json)", command=lambda: self._export("json"))
@@ -147,8 +144,7 @@ class AdvancedPage(tk.Frame):
         menu.add_separator()
         menu.add_command(label="全音域键位表 (.csv)", command=lambda: self._export("keys"))
         menu.add_command(label="全音域键位表 (.md)", command=lambda: self._export("keysmd"))
-        export.configure(menu=menu)
-        export.pack(side=tk.RIGHT, padx=4, pady=8)
+        export.pack(side=tk.RIGHT, padx=(6, 0))
 
     # ================================================================== #
     # 载入
