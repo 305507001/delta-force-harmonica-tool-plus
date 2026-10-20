@@ -107,7 +107,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           draft: true
-          name: 口琴工坊 ${{ github.ref_name }}（个人修改版）
+          name: 三角洲口琴自动演奏工具 ${{ github.ref_name }}（个人修改版）
           files: dist/*
           body: |
             ## ⚠️ 免责声明（下载前必读）
