@@ -408,9 +408,11 @@ class RoundedPanel(tk.Canvas):
         self._paint(self.winfo_width(), self.winfo_height())
 
     def _fit_height(self, _event=None) -> None:
+        # 高度跟着内容走；宽度只报"内容想要多宽"，布局给得更宽（fill=X）时照样撑满
         height = self.body.winfo_reqheight() + self._pady * 2
-        if abs(height - int(self.cget("height"))) > 0:
-            super().configure(height=height)
+        width = self.body.winfo_reqwidth() + self._padx * 2
+        if height != int(float(self.cget("height"))) or width != int(float(self.cget("width"))):
+            super().configure(height=height, width=width)
 
     def _on_resize(self, event) -> None:
         self.itemconfigure(self._window, width=max(1, event.width - self._padx * 2))
