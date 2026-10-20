@@ -170,7 +170,7 @@ class LibraryPage(tk.Frame):
         self.btn_pause = make_button(body, "暂停", self.app.toggle_pause, icon_name="pause")
         self.btn_pause.grid(row=0, column=4, padx=(0, px(6)))
         self.btn_pause.configure(state=tk.DISABLED)
-        self.btn_stop = make_button(body, "停止", self._stop, kind="danger", icon_name="stop")
+        self.btn_stop = make_button(body, "停止", self._stop, kind="danger")
         self.btn_stop.grid(row=0, column=5)
         self.btn_stop.configure(state=tk.DISABLED)
 

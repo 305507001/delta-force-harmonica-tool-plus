@@ -88,17 +88,17 @@ class ComposerPage(tk.Frame):
         bar.pack(fill=tk.X)
         make_label(bar, "曲名").pack(side=tk.LEFT, padx=(0, px(8)))
         self.var_name = tk.StringVar(value=self.tune.name)
-        name_box = SearchEntry(bar, self.var_name, width=18, search_icon=False)
+        name_box = SearchEntry(bar, self.var_name, width=12, search_icon=False)
         name_box.pack(side=tk.LEFT)
         self.var_name.trace_add("write", lambda *_: self._on_name_change())
 
-        make_label(bar, "速度").pack(side=tk.LEFT, padx=(px(20), px(8)))
+        make_label(bar, "速度").pack(side=tk.LEFT, padx=(px(16), px(8)))
         self.seg_speed = Segmented(bar, [(str(bpm), label) for label, bpm in SPEED_CHOICES],
                                    command=lambda key: self._set_bpm(float(key)), value=None, size=9)
         self.seg_speed.pack(side=tk.LEFT)
         self._speed_buttons = [(bpm, self.seg_speed.buttons[str(bpm)]) for _label, bpm in SPEED_CHOICES]
 
-        make_label(bar, "每小节").pack(side=tk.LEFT, padx=(px(20), px(8)))
+        make_label(bar, "每小节").pack(side=tk.LEFT, padx=(px(16), px(8)))
         self.var_beats = tk.StringVar(value=f"{self.tune.beats_per_bar} 拍")
         combo = make_combobox(bar, [f"{n} 拍" for n in BAR_CHOICES], self.var_beats, width=6)
         combo.pack(side=tk.LEFT)

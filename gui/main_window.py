@@ -185,7 +185,7 @@ class MainWindow(tk.Tk):
         # 演奏中的状态 + 全局停止：任何页面都能按到，出问题不用去翻页面
         self.lbl_nav_status = make_label(inner, "", dim=True, anchor="w")
         self.lbl_nav_status.pack(fill=tk.X, padx=px(10), pady=(0, px(4)))
-        self.btn_stop = make_button(inner, "停止演奏", self.stop, kind="danger", icon_name="stop")
+        self.btn_stop = make_button(inner, "停止演奏  F8", self.stop, kind="danger")
         self.btn_stop.pack(fill=tk.X, pady=(0, px(12)))
         self.btn_stop.configure(state=tk.DISABLED)
 

@@ -86,7 +86,7 @@ class KeyCaptureButton(RoundButton):
     def __init__(self, master, page: "SettingsPage", index: int) -> None:
         self.page = page
         self.index = index
-        super().__init__(master, command=self.start, width=8, height=40, size=12, bold=True,
+        super().__init__(master, command=self.start, width=6, height=38, size=12, bold=True,
                          colors=(Palette["panel_alt"], Palette["border_strong"], Palette["text"]))
         self.refresh()
 
@@ -199,11 +199,11 @@ class SettingsPage(tk.Frame):
         labels = list(STEP_DIGITS) + ["i"]     # 最后一格是高音 do
         for index in range(8):
             cell = tk.Frame(grid, bg=Palette["panel"])
-            cell.grid(row=index // 4, column=index % 4, padx=(0, 18), pady=6, sticky="w")
+            cell.grid(row=index // 4, column=index % 4, padx=(0, px(14)), pady=px(5), sticky="w")
 
             text = f"{labels[index]}  {STEP_NAMES[index % 7]}" + ("（高）" if index == 7 else "")
             tk.Label(cell, text=text, bg=Palette["panel"], fg=Palette["text_dim"],
-                     font=ui_font(9), anchor="w", width=11).pack(side=tk.LEFT)
+                     font=ui_font(9), anchor="w", width=8).pack(side=tk.LEFT)
 
             button = KeyCaptureButton(cell, self, index)
             button.pack(side=tk.LEFT)
