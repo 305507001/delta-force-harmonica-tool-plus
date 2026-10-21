@@ -285,8 +285,8 @@ class LibraryPage(tk.Frame):
         if not tune.is_empty():
             stars, hint = self._difficulty(name, tune)
             tk.Label(line2, text=" · 跟弹难度 ", bg=bg, fg=P["text_dim"], font=ui_font(10)).pack(side=tk.LEFT)
-            tk.Label(line2, text="●" * stars, bg=bg, fg=P["text_dim"], font=ui_font(7)).pack(side=tk.LEFT)
-            tk.Label(line2, text="●" * (5 - stars), bg=bg, fg=P["border_strong"], font=ui_font(7)).pack(side=tk.LEFT)
+            tk.Label(line2, text="●" * stars, bg=bg, fg=P["text_dim"], font=ui_font(9)).pack(side=tk.LEFT)
+            tk.Label(line2, text="●" * (5 - stars), bg=bg, fg=P["border_strong"], font=ui_font(9)).pack(side=tk.LEFT)
             tk.Label(line2, text=f"  {hint.split('，')[-1]}", bg=bg, fg=P["text_muted"],
                      font=ui_font(10)).pack(side=tk.LEFT)
 
