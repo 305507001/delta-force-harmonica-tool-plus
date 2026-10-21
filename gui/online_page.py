@@ -69,7 +69,7 @@ class OnlinePanel(tk.Frame):
 
     def _build(self) -> None:
         P = Palette
-        gutter = px(28)
+        gutter = px(18)
         self.grid_rowconfigure(1, weight=1)
         self.grid_columnconfigure(0, weight=1)
 

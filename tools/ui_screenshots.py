@@ -10,6 +10,8 @@
 
 用法：
     python tools/ui_screenshots.py 输出文件夹 [light|dark]
+
+想看 4K 屏 200% 缩放下的样子：先设环境变量 KOUQIN_UI_SCALE=2（最好同时把屏幕分辨率调高）。
 """
 
 from __future__ import annotations
@@ -57,6 +59,7 @@ def main() -> int:
 
     import tkinter as tk
     from gui.main_window import MainWindow
+    from gui.theme import screen_scale
 
     window = MainWindow()
     window.player.sender = window._input_sender = _DrySender()
@@ -64,8 +67,8 @@ def main() -> int:
     s.disclaimer_accepted = s.guide_shown = True
     s.countdown = 0.0
     sw, sh = window.winfo_screenwidth(), window.winfo_screenheight()
-    width, height = min(1160, sw - 40), min(760, sh - 80)
-    window.geometry(f"{width}x{height}+10+10")
+    zoom = screen_scale()
+    print(f"屏幕 {sw}x{sh}，缩放 {zoom:.2f}，窗口 {window.winfo_width()}x{window.winfo_height()}")
     shots = []
 
     def grab(name: str, widget: tk.Misc, layered: bool = False) -> None:
@@ -82,7 +85,7 @@ def main() -> int:
         """一块假的"游戏画面"，悬浮窗叠在上面截图，看半透明的效果。"""
         game = tk.Toplevel(window)
         game.overrideredirect(True)
-        game.geometry(f"{min(900, sw - 40)}x{min(420, sh - 120)}+20+60")
+        game.geometry(f"{min(int(900 * zoom), sw - 40)}x{min(int(420 * zoom), sh - 120)}+20+60")
         c = tk.Canvas(game, bg="#85b7eb", highlightthickness=0)
         c.pack(fill=tk.BOTH, expand=True)
         c.create_rectangle(0, 300, 2000, 2000, fill="#3b6d11", outline="")
@@ -114,7 +117,8 @@ def main() -> int:
 
     def overlay():
         game = fake_game()
-        s.overlay_anchor, s.overlay_x, s.overlay_y = "custom", 60, 130
+        s.overlay_anchor, s.overlay_x, s.overlay_y = "custom", int(60 * zoom), int(130 * zoom)
+        s.overlay_pos_scale = zoom
         window.overlay.apply_settings(s)
         window.play_tune_by_name("送别", "guide")
 

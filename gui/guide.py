@@ -12,7 +12,7 @@ from __future__ import annotations
 import tkinter as tk
 from typing import List, Tuple
 
-from .theme import Palette, make_button, make_label
+from .theme import Palette, make_button, make_label, px
 
 #: 三步开始：(序号, 标题, 说明)
 STEPS: List[Tuple[str, str, str]] = (
@@ -83,72 +83,72 @@ class GuideDialog(tk.Toplevel):
             pass
 
     def _build(self) -> None:
-        root = tk.Frame(self, bg=Palette["bg"], padx=22, pady=18)
+        root = tk.Frame(self, bg=Palette["bg"], padx=px(22), pady=px(18))
         root.pack(fill=tk.BOTH, expand=True)
 
         make_label(root, "三步就能开始", bold=True, size=15,
                    bg=Palette["bg"]).pack(anchor="w")
         make_label(root, "不需要懂乐理，也不用准备任何文件", dim=True,
-                   bg=Palette["bg"]).pack(anchor="w", pady=(4, 16))
+                   bg=Palette["bg"]).pack(anchor="w", pady=(px(4), px(16)))
 
         # ---- 三步 ----
         for number, title, detail in STEPS:
             row = tk.Frame(root, bg=Palette["panel"], highlightthickness=1,
                            highlightbackground=Palette["border"])
-            row.pack(fill=tk.X, pady=(0, 8))
+            row.pack(fill=tk.X, pady=(0, px(8)))
 
             badge = tk.Label(row, text=number, bg=Palette["accent"], fg=Palette["on_accent"],
-                             font=("Microsoft YaHei UI", 13, "bold"), width=3, pady=6)
-            badge.pack(side=tk.LEFT, padx=(12, 12), pady=11)
+                             font=("Microsoft YaHei UI", 13, "bold"), width=3, pady=px(6))
+            badge.pack(side=tk.LEFT, padx=(px(12), px(12)), pady=px(11))
 
             text_box = tk.Frame(row, bg=Palette["panel"])
-            text_box.pack(side=tk.LEFT, fill=tk.X, expand=True, pady=10, padx=(0, 12))
+            text_box.pack(side=tk.LEFT, fill=tk.X, expand=True, pady=px(10), padx=(0, px(12)))
             tk.Label(text_box, text=title, bg=Palette["panel"], fg=Palette["text"],
                      font=("Microsoft YaHei UI", 11, "bold"), anchor="w").pack(anchor="w")
             tk.Label(text_box, text=detail, bg=Palette["panel"], fg=Palette["text_dim"],
                      font=("Microsoft YaHei UI", 9), anchor="w", justify=tk.LEFT,
-                     wraplength=430).pack(anchor="w", pady=(3, 0))
+                     wraplength=px(430)).pack(anchor="w", pady=(px(3), 0))
 
         # ---- 出问题怎么办 ----
         trouble = tk.Frame(root, bg=Palette["warn_soft"], highlightthickness=1,
                            highlightbackground=Palette["warn_soft"])
-        trouble.pack(fill=tk.X, pady=(14, 0))
-        inner = tk.Frame(trouble, bg=Palette["warn_soft"], padx=16, pady=12)
+        trouble.pack(fill=tk.X, pady=(px(14), 0))
+        inner = tk.Frame(trouble, bg=Palette["warn_soft"], padx=px(16), pady=px(12))
         inner.pack(fill=tk.X)
 
         tk.Label(inner, text="游戏里没反应？按顺序检查这几条", bg=Palette["warn_soft"],
                  fg=Palette["warn"], font=("Microsoft YaHei UI", 10, "bold"),
-                 anchor="w").pack(anchor="w", pady=(0, 7))
+                 anchor="w").pack(anchor="w", pady=(0, px(7)))
         for item in TROUBLES:
             tk.Label(inner, text="· " + item, bg=Palette["warn_soft"], fg=Palette["text"],
                      font=("Microsoft YaHei UI", 9), anchor="w", justify=tk.LEFT,
-                     wraplength=530).pack(anchor="w", pady=1)
+                     wraplength=px(530)).pack(anchor="w", pady=px(1))
 
         # ---- 还能做什么 ----
         more = tk.Frame(root, bg=Palette["bg"])
-        more.pack(fill=tk.X, pady=(16, 0))
-        make_label(more, "还能做什么", bold=True, bg=Palette["bg"]).pack(anchor="w", pady=(0, 6))
+        more.pack(fill=tk.X, pady=(px(16), 0))
+        make_label(more, "还能做什么", bold=True, bg=Palette["bg"]).pack(anchor="w", pady=(0, px(6)))
         for title, detail in EXTRAS:
             line = tk.Frame(more, bg=Palette["bg"])
-            line.pack(fill=tk.X, pady=2)
+            line.pack(fill=tk.X, pady=px(2))
             tk.Label(line, text=title, bg=Palette["bg"], fg=Palette["accent"],
                      font=("Microsoft YaHei UI", 9, "bold"), width=11,
                      anchor="w").pack(side=tk.LEFT)
             tk.Label(line, text=detail, bg=Palette["bg"], fg=Palette["text_dim"],
                      font=("Microsoft YaHei UI", 9), anchor="w", justify=tk.LEFT,
-                     wraplength=460).pack(side=tk.LEFT, fill=tk.X, expand=True)
+                     wraplength=px(460)).pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         # ---- 免责 + 按钮 ----
         notice = tk.Frame(root, bg=Palette["danger_soft"], highlightthickness=1,
                           highlightbackground=Palette["danger_soft"])
-        notice.pack(fill=tk.X, pady=(16, 0))
+        notice.pack(fill=tk.X, pady=(px(16), 0))
         tk.Label(notice,
                  text="仅供个人学习、技术研究与娱乐使用　·　严禁在任何在线对局中使用　·　后果自负",
                  bg=Palette["danger_soft"], fg=Palette["danger"], font=("Microsoft YaHei UI", 9),
-                 padx=14, pady=8).pack(anchor="w", fill=tk.X)
+                 padx=px(14), pady=px(8)).pack(anchor="w", fill=tk.X)
 
         make_button(root, "知道了，开始玩", self.destroy, kind="accent",
-                    width=16).pack(anchor="e", pady=(14, 0))
+                    width=16).pack(anchor="e", pady=(px(14), 0))
 
 
 def show_guide(master) -> None:

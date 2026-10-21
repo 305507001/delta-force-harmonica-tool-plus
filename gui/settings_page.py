@@ -68,6 +68,14 @@ _ANCHORS = [("屏幕上方", "top"), ("中间偏上（默认）", "upper"), ("�
             ("屏幕下方", "bottom"), ("拖动过的位置", "custom")]
 
 
+#: 界面大小：(设置值, 显示名)
+_UI_SIZES = [("0.9", "紧凑"), ("1.0", "标准"), ("1.15", "大"), ("1.3", "更大"), ("1.5", "特大")]
+
+
+def _size_key(value: float) -> str:
+    return min(_UI_SIZES, key=lambda item: abs(float(item[0]) - value))[0]
+
+
 def _label_for(choices, value: float) -> str:
     """数值 → 最接近的那个选项（配置文件里可能是手改过的数）。"""
     return min(choices, key=lambda item: abs(item[1] - value))[0]
@@ -145,8 +153,8 @@ class SettingsPage(tk.Frame):
         enable_wheel_scroll(self.canvas)
 
         head = tk.Frame(holder, bg=Palette["bg"])
-        head.pack(fill=tk.X, padx=px(28), pady=(px(24), px(2)))
-        tk.Label(head, text="设置", font=title_font(22), bg=Palette["bg"], fg=Palette["text"],
+        head.pack(fill=tk.X, padx=px(18), pady=(px(14), px(2)))
+        tk.Label(head, text="设置", font=title_font(18), bg=Palette["bg"], fg=Palette["text"],
                  anchor="w").pack(fill=tk.X)
         make_label(head, "改完点最下面的「保存设置」才生效", dim=True, anchor="w").pack(fill=tk.X, pady=(px(4), 0))
 
@@ -162,26 +170,38 @@ class SettingsPage(tk.Frame):
     # ------------------------------------------------------------------ #
 
     def _card(self, parent, title: str, subtitle: str = "") -> tk.Frame:
-        panel = RoundedPanel(parent, fill=Palette["panel"], radius=12, padx=18, pady=16)
-        panel.pack(fill=tk.X, padx=(px(28), px(22)), pady=(px(14), 0))
+        panel = RoundedPanel(parent, fill=Palette["panel"], radius=12, padx=16, pady=12)
+        panel.pack(fill=tk.X, padx=(px(18), px(12)), pady=(px(10), 0))
         card = panel.body
 
-        make_label(card, title, bold=True, size=11, anchor="w").pack(fill=tk.X)
+        make_label(card, title, bold=True, size=12, anchor="w").pack(fill=tk.X)
         if subtitle:
             # 说明文字可能很长，窗口缩到最小宽度时要能折行
             make_label(card, subtitle, dim=True, wraplength=px(820),
                        justify=tk.LEFT, anchor="w").pack(fill=tk.X, pady=(px(2), 0))
 
         body = tk.Frame(card, bg=Palette["panel"])
-        body.pack(fill=tk.X, pady=(px(10), 0))
+        body.pack(fill=tk.X, pady=(px(8), 0))
         return body
 
     def _build_appearance_card(self, parent) -> None:
         body = self._card(parent, "外观", "跟随系统时，Windows 设置里「应用模式」是深色就用深色。"
                                          "改完保存后界面会重新载入一次（正在演奏的会停下）。")
-        self.seg_appearance = Segmented(body, [("system", "跟随系统"), ("light", "浅色"), ("dark", "深色")],
+        row = tk.Frame(body, bg=Palette["panel"])
+        row.pack(fill=tk.X)
+        make_label(row, "配色", width=8, anchor="w").pack(side=tk.LEFT)
+        self.seg_appearance = Segmented(row, [("system", "跟随系统"), ("light", "浅色"), ("dark", "深色")],
                                         command=lambda _k: self._mark_dirty(), value=self.settings.appearance)
-        self.seg_appearance.pack(anchor="w")
+        self.seg_appearance.pack(side=tk.LEFT)
+
+        row = tk.Frame(body, bg=Palette["panel"])
+        row.pack(fill=tk.X, pady=(px(10), 0))
+        make_label(row, "界面大小", width=8, anchor="w").pack(side=tk.LEFT)
+        self.seg_size = Segmented(row, [(key, label) for key, label in _UI_SIZES],
+                                  command=lambda _k: self._mark_dirty(), value=_size_key(self.settings.ui_size))
+        self.seg_size.pack(side=tk.LEFT)
+        make_label(row, "觉得按钮和字小就调大；4K 屏会自动按系统缩放放大，这里是在那之上再放大",
+                   dim=True).pack(side=tk.LEFT, padx=(px(12), 0))
 
     def _mark_dirty(self) -> None:
         self.lbl_status.configure(text="改动还没保存，记得点「保存设置」")
@@ -209,7 +229,7 @@ class SettingsPage(tk.Frame):
             button.pack(side=tk.LEFT)
             self.key_buttons.append(button)
 
-        make_button(body, "恢复默认键位", self._reset_keys, kind="ghost").pack(anchor="w", pady=(10, 0))
+        make_button(body, "恢复默认键位", self._reset_keys, kind="ghost").pack(anchor="w", pady=(px(10), 0))
 
     def _build_mods_card(self, parent) -> None:
         body = self._card(
@@ -223,9 +243,9 @@ class SettingsPage(tk.Frame):
 
         for feature in ("down", "up", "sharp"):
             cell = tk.Frame(row, bg=Palette["panel"])
-            cell.pack(side=tk.LEFT, padx=(0, 24))
+            cell.pack(side=tk.LEFT, padx=(0, px(24)))
 
-            make_label(cell, MOD_FEATURE_LABELS[feature]).pack(anchor="w", pady=(0, 4))
+            make_label(cell, MOD_FEATURE_LABELS[feature]).pack(anchor="w", pady=(0, px(4)))
             var = tk.StringVar(value=_MOD_LABEL[self.settings.mod_assign.get(feature)])
             combo = make_combobox(cell, _MOD_CHOICES, var, width=11)
             combo.pack(anchor="w")
@@ -233,7 +253,7 @@ class SettingsPage(tk.Frame):
             self.mod_vars[feature] = var
 
         self.lbl_mod_warn = make_label(body, "", dim=True)
-        self.lbl_mod_warn.pack(anchor="w", pady=(8, 0))
+        self.lbl_mod_warn.pack(anchor="w", pady=(px(8), 0))
 
     def _build_play_card(self, parent) -> None:
         body = self._card(
@@ -244,28 +264,28 @@ class SettingsPage(tk.Frame):
         row = tk.Frame(body, bg=Palette["panel"])
         row.pack(fill=tk.X)
 
-        make_label(row, "节奏档").pack(side=tk.LEFT, padx=(0, 8))
+        make_label(row, "节奏档").pack(side=tk.LEFT, padx=(0, px(8)))
         self.var_timing = tk.StringVar(value=TIMING_PRESETS[self.settings.timing].label)
         combo = make_combobox(row, [p.label for p in TIMING_PRESETS.values()], self.var_timing, width=8)
         combo.pack(side=tk.LEFT)
         combo.bind("<<ComboboxSelected>>", lambda e: self._on_timing_changed())
         self.lbl_timing = make_label(row, "", dim=True)
-        self.lbl_timing.pack(side=tk.LEFT, padx=12)
+        self.lbl_timing.pack(side=tk.LEFT, padx=px(12))
 
         row2 = tk.Frame(body, bg=Palette["panel"])
-        row2.pack(fill=tk.X, pady=(12, 0))
-        make_label(row2, "开始前倒计时").pack(side=tk.LEFT, padx=(0, 8))
+        row2.pack(fill=tk.X, pady=(px(12), 0))
+        make_label(row2, "开始前倒计时").pack(side=tk.LEFT, padx=(0, px(8)))
         self.var_countdown = tk.DoubleVar(value=self.settings.countdown)
         make_spinbox(row2, self.var_countdown, 0, 15, 1, 4).pack(side=tk.LEFT)
-        make_label(row2, "秒（留出切到游戏的时间）", dim=True).pack(side=tk.LEFT, padx=(6, 0))
+        make_label(row2, "秒（留出切到游戏的时间）", dim=True).pack(side=tk.LEFT, padx=(px(6), 0))
 
         row3 = tk.Frame(body, bg=Palette["panel"])
-        row3.pack(fill=tk.X, pady=(12, 0))
+        row3.pack(fill=tk.X, pady=(px(12), 0))
         self.var_legato = tk.BooleanVar(value=self.settings.legato)
         make_check(row3, "音和音之间不留空隙（更连贯）", self.var_legato,
                    command=lambda: self.lbl_status.configure(text="演奏设置已改动，记得点「保存设置」")
                    ).pack(side=tk.LEFT)
-        make_label(row3, "同一个键连按仍会留一帧；游戏里漏音就关掉它", dim=True).pack(side=tk.LEFT, padx=(8, 0))
+        make_label(row3, "同一个键连按仍会留一帧；游戏里漏音就关掉它", dim=True).pack(side=tk.LEFT, padx=(px(8), 0))
 
     def _build_overlay_card(self, parent) -> None:
         body = self._card(
@@ -279,73 +299,73 @@ class SettingsPage(tk.Frame):
         row.pack(fill=tk.X)
         self.var_overlay_auto = tk.BooleanVar(value=self.settings.overlay_in_auto)
         make_check(row, "自动演奏时也显示悬浮提示", self.var_overlay_auto,
-                   command=on_change).pack(side=tk.LEFT, padx=(0, 24))
+                   command=on_change).pack(side=tk.LEFT, padx=(0, px(24)))
         self.var_overlay_keyboard = tk.BooleanVar(value=self.settings.overlay_keyboard)
         make_check(row, "显示下方的键盘提示行", self.var_overlay_keyboard,
                    command=on_change).pack(side=tk.LEFT)
 
         row = tk.Frame(body, bg=Palette["panel"])
-        row.pack(fill=tk.X, pady=(8, 0))
+        row.pack(fill=tk.X, pady=(px(8), 0))
         self.var_guide_wait = tk.BooleanVar(value=self.settings.guide_wait)
         make_check(row, "跟弹时「等我按对再继续」", self.var_guide_wait,
                    command=on_change).pack(side=tk.LEFT)
-        make_label(row, "练习用：每个音都停下来等你按对，不考节奏", dim=True).pack(side=tk.LEFT, padx=(8, 0))
+        make_label(row, "练习用：每个音都停下来等你按对，不考节奏", dim=True).pack(side=tk.LEFT, padx=(px(8), 0))
 
         row = tk.Frame(body, bg=Palette["panel"])
-        row.pack(fill=tk.X, pady=(12, 0))
-        make_label(row, "跟弹速度").pack(side=tk.LEFT, padx=(0, 8))
+        row.pack(fill=tk.X, pady=(px(12), 0))
+        make_label(row, "跟弹速度").pack(side=tk.LEFT, padx=(0, px(8)))
         self.var_guide_speed = tk.StringVar(value=_label_for(_GUIDE_SPEEDS, self.settings.guide_speed))
         combo = make_combobox(row, [t for t, _ in _GUIDE_SPEEDS], self.var_guide_speed, width=11)
         combo.pack(side=tk.LEFT)
         combo.bind("<<ComboboxSelected>>", lambda e: on_change())
 
-        make_label(row, "提前显示").pack(side=tk.LEFT, padx=(24, 8))
+        make_label(row, "提前显示").pack(side=tk.LEFT, padx=(px(24), px(8)))
         self.var_lookahead = tk.StringVar(value=_label_for(_LOOKAHEADS, self.settings.overlay_lookahead))
         combo = make_combobox(row, [t for t, _ in _LOOKAHEADS], self.var_lookahead, width=6)
         combo.pack(side=tk.LEFT)
         combo.bind("<<ComboboxSelected>>", lambda e: on_change())
 
-        make_label(row, "大小").pack(side=tk.LEFT, padx=(24, 8))
+        make_label(row, "大小").pack(side=tk.LEFT, padx=(px(24), px(8)))
         self.var_scale = tk.StringVar(value=_label_for(_SCALES, self.settings.overlay_scale))
         combo = make_combobox(row, [t for t, _ in _SCALES], self.var_scale, width=5)
         combo.pack(side=tk.LEFT)
         combo.bind("<<ComboboxSelected>>", lambda e: on_change())
 
         row = tk.Frame(body, bg=Palette["panel"])
-        row.pack(fill=tk.X, pady=(12, 0))
-        make_label(row, "背景透明度").pack(side=tk.LEFT, padx=(0, 8))
+        row.pack(fill=tk.X, pady=(px(12), 0))
+        make_label(row, "背景透明度").pack(side=tk.LEFT, padx=(0, px(8)))
         self.var_backdrop = tk.DoubleVar(value=round(self.settings.overlay_backdrop * 100))
         make_slider(row, self.var_backdrop, 0, 90, 5, length=180,
                     command=lambda _v: on_change()).pack(side=tk.LEFT)
         self.lbl_backdrop = make_label(row, "", dim=True, width=5, anchor="w")
-        self.lbl_backdrop.pack(side=tk.LEFT, padx=(8, 0))
-        make_label(row, "提示不透明度").pack(side=tk.LEFT, padx=(24, 8))
+        self.lbl_backdrop.pack(side=tk.LEFT, padx=(px(8), 0))
+        make_label(row, "提示不透明度").pack(side=tk.LEFT, padx=(px(24), px(8)))
         self.var_alpha = tk.DoubleVar(value=round(self.settings.overlay_alpha * 100))
         make_slider(row, self.var_alpha, 60, 100, 5, length=150,
                     command=lambda _v: on_change()).pack(side=tk.LEFT)
         self.lbl_alpha = make_label(row, "", dim=True, width=5, anchor="w")
-        self.lbl_alpha.pack(side=tk.LEFT, padx=(8, 0))
+        self.lbl_alpha.pack(side=tk.LEFT, padx=(px(8), 0))
         make_label(body, "背景越透明，越能看清下面的游戏画面；音符和键帽只跟「提示不透明度」走，背景调到很透明也看得清。",
-                   dim=True, anchor="w").pack(fill=tk.X, pady=(6, 0))
+                   dim=True, anchor="w").pack(fill=tk.X, pady=(px(6), 0))
 
         row = tk.Frame(body, bg=Palette["panel"])
-        row.pack(fill=tk.X, pady=(14, 0))
-        make_label(row, "位置").pack(side=tk.LEFT, padx=(0, 8))
+        row.pack(fill=tk.X, pady=(px(14), 0))
+        make_label(row, "位置").pack(side=tk.LEFT, padx=(0, px(8)))
         self.var_anchor = tk.StringVar(value=self._anchor_label(self.settings.overlay_anchor))
         combo = make_combobox(row, [t for t, _ in _ANCHORS], self.var_anchor, width=16)
         combo.pack(side=tk.LEFT)
         combo.bind("<<ComboboxSelected>>", lambda e: on_change())
         self.btn_adjust = make_button(row, "调整位置 / 预览", self._toggle_adjust, kind="guide")
-        self.btn_adjust.pack(side=tk.LEFT, padx=(12, 0))
+        self.btn_adjust.pack(side=tk.LEFT, padx=(px(12), 0))
         self.lbl_adjust = make_label(row, "点「调整位置」后悬浮窗会出现并播放演示，可以直接拖到想要的地方，双击锁定",
                                      dim=True)
-        self.lbl_adjust.pack(side=tk.LEFT, padx=(8, 0))
+        self.lbl_adjust.pack(side=tk.LEFT, padx=(px(8), 0))
 
         make_label(body, "演奏 / 跟弹时也能挪：光标露出来的时候（比如 Alt+Tab 切出来），在悬浮窗上按住左键不动半秒，"
                          "就能拖着走，松开放下，位置自动保存。",
-                   dim=True).pack(anchor="w", pady=(12, 0))
+                   dim=True).pack(anchor="w", pady=(px(12), 0))
         make_label(body, "全屏独占模式下任何窗口都盖不到游戏上——游戏要设成「无边框窗口化」或「窗口化」。",
-                   dim=True).pack(anchor="w", pady=(4, 0))
+                   dim=True).pack(anchor="w", pady=(px(4), 0))
 
     def _collect_overlay(self) -> None:
         """把悬浮窗那几项收回 self.settings（不落盘）。"""
@@ -427,15 +447,15 @@ class SettingsPage(tk.Frame):
         )
         row = tk.Frame(body, bg=Palette["panel"])
         row.pack(fill=tk.X)
-        make_label(row, "曲库地址").pack(side=tk.LEFT, padx=(0, 8))
+        make_label(row, "曲库地址").pack(side=tk.LEFT, padx=(0, px(8)))
         self.var_online_base = tk.StringVar(value=self.settings.online_library_base or DEFAULT_BASE)
         box = SearchEntry(row, self.var_online_base, width=64, search_icon=False)
         box.entry.configure(font=mono_font(9))
         box.pack(side=tk.LEFT)
         make_button(row, "恢复默认", lambda: self.var_online_base.set(DEFAULT_BASE),
-                    kind="ghost").pack(side=tk.LEFT, padx=8)
+                    kind="ghost").pack(side=tk.LEFT, padx=px(8))
         make_label(body, "曲库搬家时把新地址填在这里（地址末尾一般是 /harmonica）；改完点「保存设置」，"
-                         "再到在线曲库点「刷新目录」。", dim=True).pack(anchor="w", pady=(8, 0))
+                         "再到在线曲库点「刷新目录」。", dim=True).pack(anchor="w", pady=(px(8), 0))
 
     def _build_compose_card(self, parent) -> None:
         body = self._card(parent, "谱曲默认值", "新建曲子时用这些参数，已保存的曲子不受影响。")
@@ -443,30 +463,30 @@ class SettingsPage(tk.Frame):
         row = tk.Frame(body, bg=Palette["panel"])
         row.pack(fill=tk.X)
 
-        make_label(row, "每小节拍数").pack(side=tk.LEFT, padx=(0, 8))
+        make_label(row, "每小节拍数").pack(side=tk.LEFT, padx=(0, px(8)))
         self.var_beats = tk.StringVar(value=f"{self.settings.beats_per_bar} 拍")
         combo = make_combobox(row, [f"{n} 拍" for n in (2, 3, 4, 6)], self.var_beats, width=7)
         combo.pack(side=tk.LEFT)
 
-        make_label(row, "默认速度").pack(side=tk.LEFT, padx=(24, 8))
+        make_label(row, "默认速度").pack(side=tk.LEFT, padx=(px(24), px(8)))
         self.var_bpm = tk.DoubleVar(value=self.settings.default_bpm)
         make_spinbox(row, self.var_bpm, 40, 200, 5, 6).pack(side=tk.LEFT)
 
     def _build_actions(self, parent) -> None:
         bar = tk.Frame(parent, bg=Palette["bg"])
-        bar.pack(fill=tk.X, padx=(px(28), px(22)), pady=(px(20), px(4)))
+        bar.pack(fill=tk.X, padx=(px(18), px(12)), pady=(px(20), px(4)))
 
         make_button(bar, "恢复全部默认设置", self._reset_all, kind="ghost").pack(side=tk.LEFT)
-        make_button(bar, "查看使用须知", self._show_disclaimer, kind="ghost").pack(side=tk.LEFT, padx=8)
+        make_button(bar, "查看使用须知", self._show_disclaimer, kind="ghost").pack(side=tk.LEFT, padx=px(8))
         make_button(bar, "保存设置", self._save, kind="accent").pack(side=tk.RIGHT)
-        make_button(bar, "放弃修改", self._reload, kind="ghost").pack(side=tk.RIGHT, padx=8)
+        make_button(bar, "放弃修改", self._reload, kind="ghost").pack(side=tk.RIGHT, padx=px(8))
 
         self.lbl_status = make_label(bar, "", dim=True, bg=Palette["bg"])
-        self.lbl_status.pack(side=tk.RIGHT, padx=16)
+        self.lbl_status.pack(side=tk.RIGHT, padx=px(16))
 
         # 最下面常驻的一句提醒
         notice = RoundedPanel(parent, fill=Palette["danger_soft"], outline=None, radius=10, padx=14, pady=10)
-        notice.pack(fill=tk.X, padx=(px(28), px(22)), pady=(px(6), px(24)))
+        notice.pack(fill=tk.X, padx=(px(18), px(12)), pady=(px(6), px(24)))
         tk.Label(
             notice.body,
             text="仅供个人学习、技术研究与娱乐使用　·　严禁在任何在线对局中使用　·　"
@@ -579,6 +599,7 @@ class SettingsPage(tk.Frame):
         self.var_alpha.set(round(self.settings.overlay_alpha * 100))
         self.var_backdrop.set(round(self.settings.overlay_backdrop * 100))
         self.seg_appearance.set(self.settings.appearance)
+        self.seg_size.set(_size_key(self.settings.ui_size))
         self.var_anchor.set(self._anchor_label(self.settings.overlay_anchor))
         self.var_legato.set(self.settings.legato)
         from kouqin.online import DEFAULT_BASE
@@ -668,6 +689,7 @@ class SettingsPage(tk.Frame):
 
         self._collect_overlay()
         self.settings.appearance = self.seg_appearance.value or "system"
+        self.settings.ui_size = float(self.seg_size.value or "1.0")
         self.settings.legato = bool(self.var_legato.get())
         from kouqin.online import DEFAULT_BASE
         base = self.var_online_base.get().strip().rstrip("/")
@@ -685,12 +707,13 @@ class SettingsPage(tk.Frame):
             messagebox.showerror("设置有冲突", "\n".join(problems), parent=self.app)
             return
 
-        restart = self.settings.appearance != self.app.settings.appearance
+        restart = (self.settings.appearance != self.app.settings.appearance
+                   or abs(self.settings.ui_size - self.app.settings.ui_size) > 1e-3)
         self.app.apply_settings(self.settings)
         self.lbl_status.configure(text="✔ 已保存")
         self.app.log("设置已保存")
         if restart:
-            # 换外观要把整个界面按新配色重建一遍
+            # 换外观 / 界面大小要把整个界面按新配色、新尺寸重建一遍
             self.app.after(50, self.app.restart)
 
     def on_show(self) -> None:

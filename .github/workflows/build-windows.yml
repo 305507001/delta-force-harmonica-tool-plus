@@ -63,6 +63,15 @@ jobs:
           python tools/ui_screenshots.py ui-screenshots light
           python tools/ui_screenshots.py ui-screenshots dark
 
+      - name: 界面截图（模拟 4K 屏 200% 缩放）
+        continue-on-error: true
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          try { Set-DisplayResolution -Width 3840 -Height 2160 -Force -ErrorAction Stop } catch { Write-Host "改不了分辨率，按默认分辨率截：$_" }
+          $env:KOUQIN_UI_SCALE = "2"
+          python tools/ui_screenshots.py ui-screenshots/4k light
+
       - name: 上传界面截图
         if: always()
         continue-on-error: true

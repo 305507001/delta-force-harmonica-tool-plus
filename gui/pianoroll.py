@@ -20,7 +20,7 @@ from typing import Callable, List, Optional, Sequence, Tuple
 from kouqin.layout import Layout
 from kouqin.smf import Note
 
-from .theme import is_dark, ui_font
+from .theme import is_dark, px, ui_font
 
 __all__ = ["PianoRoll"]
 
@@ -47,7 +47,9 @@ _ROLL_COLORS = {
 
 
 def _apply_colors() -> None:
+    """按当前外观选配色，按屏幕缩放换算尺寸（建卷帘时调用）。"""
     globals().update(_ROLL_COLORS["dark" if is_dark() else "light"])
+    globals().update(KEYCOL_W=px(46), RULER_H=px(22), ROW_H=px(11))
 
 
 _apply_colors()
@@ -79,7 +81,7 @@ class PianoRoll(tk.Frame):
         self.selected: set = set()          # 选中的下标集合
 
         # 视图状态
-        self.px_per_ms = 0.12
+        self.px_per_ms = 0.12 * px(100) / 100.0
         self.view_ms = 0.0
         self.snap_ms = 100.0
         self.snap_on = True

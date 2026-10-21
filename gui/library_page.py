@@ -37,7 +37,7 @@ from .theme import Palette, enable_wheel_scroll, make_button, make_label, mono_f
 from .widgets import RoundButton, RoundedPanel, SearchEntry, Segmented, make_badge, rounded_photo
 
 #: 页面左右留白
-_GUTTER = 28
+_GUTTER = 18
 
 
 class LibraryPage(tk.Frame):
@@ -73,10 +73,10 @@ class LibraryPage(tk.Frame):
     def _build_header(self) -> None:
         P = Palette
         head = tk.Frame(self, bg=P["bg"])
-        head.grid(row=0, column=0, sticky="ew", padx=px(_GUTTER), pady=(px(24), px(12)))
+        head.grid(row=0, column=0, sticky="ew", padx=px(_GUTTER), pady=(px(14), px(8)))
         text = tk.Frame(head, bg=P["bg"])
         text.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        tk.Label(text, text="曲库", font=title_font(22), bg=P["bg"], fg=P["text"], anchor="w").pack(fill=tk.X)
+        tk.Label(text, text="曲库", font=title_font(18), bg=P["bg"], fg=P["text"], anchor="w").pack(fill=tk.X)
         self.lbl_count = make_label(text, "", dim=True, anchor="w")
         self.lbl_count.pack(fill=tk.X, pady=(px(4), 0))
         self.tabs = Segmented(head, [("local", "我的曲库"), ("online", "在线曲库")], command=self.show_tab,
@@ -86,7 +86,7 @@ class LibraryPage(tk.Frame):
     def _build_toolbar(self) -> None:
         P = Palette
         bar = tk.Frame(self, bg=P["bg"])
-        bar.grid(row=1, column=0, sticky="ew", padx=px(_GUTTER), pady=(0, px(12)))
+        bar.grid(row=1, column=0, sticky="ew", padx=px(_GUTTER), pady=(0, px(10)))
         self._local_actions = bar
         search = SearchEntry(bar, self.var_query, placeholder="搜索曲名", width=24)
         search.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -139,17 +139,17 @@ class LibraryPage(tk.Frame):
 
     def _build_player_bar(self) -> None:
         P = Palette
-        card = RoundedPanel(self, fill=P["panel"], outline=P["border_strong"], radius=16, padx=16, pady=10)
-        card.grid(row=3, column=0, sticky="ew", padx=px(_GUTTER), pady=(px(10), px(14)))
+        card = RoundedPanel(self, fill=P["panel"], outline=P["border_strong"], radius=14, padx=14, pady=8)
+        card.grid(row=3, column=0, sticky="ew", padx=px(_GUTTER), pady=(px(8), px(10)))
         self.bar = body = card.body
         body.grid_columnconfigure(1, weight=1)
 
-        info = tk.Frame(body, bg=P["panel"], width=px(190), height=px(40))
+        info = tk.Frame(body, bg=P["panel"], width=px(210), height=px(44))
         info.grid(row=0, column=0, sticky="w")
         info.pack_propagate(False)
-        self.lbl_mode = make_label(info, "没在播放", size=8, dim=True, anchor="w")
+        self.lbl_mode = make_label(info, "没在播放", size=9, dim=True, anchor="w")
         self.lbl_mode.pack(fill=tk.X)
-        self.lbl_now = make_label(info, "选一首曲子开始", bold=True, size=10, anchor="w")
+        self.lbl_now = make_label(info, "选一首曲子开始", bold=True, size=11, anchor="w")
         self.lbl_now.pack(fill=tk.X)
 
         # 进度条：点一下跳过去，按住拖动松开后跳（拖的过程中不跳，免得一路乱响）
@@ -162,7 +162,7 @@ class LibraryPage(tk.Frame):
         self.progress.bind("<ButtonRelease-1>", self._scrub_end)
         self.progress.bind("<Configure>", lambda e: self._draw_progress())
 
-        self.lbl_time = make_label(body, "", dim=True, font=mono_font(9))
+        self.lbl_time = make_label(body, "", dim=True, font=mono_font(10))
         self.lbl_time.grid(row=0, column=2, padx=(0, px(10)))
         self.lbl_score = make_label(body, "", fg=P["guide"])
         self.lbl_score.grid(row=0, column=3, padx=(0, px(10)))
@@ -205,7 +205,7 @@ class LibraryPage(tk.Frame):
         card.pack(fill=tk.X, padx=(px(_GUTTER), px(_GUTTER - 6)), pady=(0, px(8)))
         for index, name in enumerate(shown):
             if index:
-                tk.Frame(card.body, bg=P["border"], height=1).pack(fill=tk.X, padx=px(10))
+                tk.Frame(card.body, bg=P["border"], height=px(1)).pack(fill=tk.X, padx=px(10))
             self._add_row(card.body, name)
 
     def _empty_state(self, query: str) -> None:
@@ -247,7 +247,7 @@ class LibraryPage(tk.Frame):
 
         # --- 右侧按钮（先放，免得曲名太长把按钮挤出去）：编辑 删除 跟弹 演奏 ---
         buttons = tk.Frame(row, bg=bg)
-        buttons.pack(side=tk.RIGHT, padx=(px(8), px(12)), pady=px(10))
+        buttons.pack(side=tk.RIGHT, padx=(px(8), px(10)), pady=px(7))
         if tune.is_grid:
             RoundButton(buttons, icon_name="edit", kind="icon", height=32, padx=8,
                         command=lambda n=name: self.app.edit_tune(n)).pack(side=tk.LEFT)
@@ -260,10 +260,10 @@ class LibraryPage(tk.Frame):
 
         # --- 左侧信息 ---
         info = tk.Frame(row, bg=bg)
-        info.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(px(14), 0), pady=px(10))
+        info.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(px(14), 0), pady=px(7))
         line1 = tk.Frame(info, bg=bg)
         line1.pack(anchor="w", fill=tk.X)
-        title = tk.Label(line1, text=tune.name, bg=bg, fg=P["text"], font=ui_font(11, True), anchor="w")
+        title = tk.Label(line1, text=tune.name, bg=bg, fg=P["text"], font=ui_font(12, True), anchor="w")
         title.pack(side=tk.LEFT)
         if tune.source.get("kind") == "online":
             make_badge(line1, "在线曲库", "guide").pack(side=tk.LEFT, padx=(px(8), 0))
@@ -280,15 +280,15 @@ class LibraryPage(tk.Frame):
             detail = (f"{tune.note_count()} 个音 · 约 {_duration(seconds)} · "
                       f"来自在线曲库 · 上传者 {uploader} · 原样保存，不能编辑")
         line2 = tk.Frame(info, bg=bg)
-        line2.pack(anchor="w", pady=(px(3), 0))
-        tk.Label(line2, text=detail, bg=bg, fg=P["text_dim"], font=ui_font(9), anchor="w").pack(side=tk.LEFT)
+        line2.pack(anchor="w", pady=(px(1), 0))
+        tk.Label(line2, text=detail, bg=bg, fg=P["text_dim"], font=ui_font(10), anchor="w").pack(side=tk.LEFT)
         if not tune.is_empty():
             stars, hint = self._difficulty(name, tune)
-            tk.Label(line2, text=" · 跟弹难度 ", bg=bg, fg=P["text_dim"], font=ui_font(9)).pack(side=tk.LEFT)
+            tk.Label(line2, text=" · 跟弹难度 ", bg=bg, fg=P["text_dim"], font=ui_font(10)).pack(side=tk.LEFT)
             tk.Label(line2, text="●" * stars, bg=bg, fg=P["text_dim"], font=ui_font(7)).pack(side=tk.LEFT)
             tk.Label(line2, text="●" * (5 - stars), bg=bg, fg=P["border_strong"], font=ui_font(7)).pack(side=tk.LEFT)
             tk.Label(line2, text=f"  {hint.split('，')[-1]}", bg=bg, fg=P["text_muted"],
-                     font=ui_font(9)).pack(side=tk.LEFT)
+                     font=ui_font(10)).pack(side=tk.LEFT)
 
         self._row_widgets.append((name, row, bg, title))
 
@@ -401,6 +401,12 @@ class LibraryPage(tk.Frame):
         width = max(40, self.progress.winfo_width())
         pad = px(9)
         return max(0.0, min(1.0, (x - pad) / (width - 2 * pad)))
+
+    def x_for_ratio(self, ratio: float) -> float:
+        """进度条上 ``ratio`` 处的横坐标（:meth:`_ratio_at` 的反函数，测试用）。"""
+        width = max(40, self.progress.winfo_width())
+        pad = px(9)
+        return pad + (width - 2 * pad) * ratio
 
     def _scrub_move(self, event) -> None:
         if not self._seekable():

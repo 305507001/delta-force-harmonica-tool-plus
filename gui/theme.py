@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import os
 import sys
 import tkinter as tk
@@ -27,7 +28,7 @@ __all__ = [
     "Palette", "THEMES", "apply_theme", "set_appearance", "resolve_appearance", "is_dark",
     "make_button", "make_label", "make_combobox", "make_spinbox", "make_check", "make_slider",
     "enable_wheel_scroll", "blend", "add_hover", "px", "ui_font", "title_font", "mono_font",
-    "icon", "octave_colors", "FONT_UI",
+    "icon", "octave_colors", "FONT_UI", "enable_dpi_awareness", "screen_scale", "ui_scale",
 ]
 
 # --------------------------------------------------------------------------- #
@@ -159,7 +160,8 @@ def blend(color: str, other: str, amount: float) -> str:
 # 尺寸与字体
 # --------------------------------------------------------------------------- #
 
-_SCALE = 1.0
+_SCALE = 1.0          # 界面实际缩放 = 屏幕缩放 × 「界面大小」
+_SCREEN = 1.0         # 屏幕缩放（Windows 显示设置里的 125% / 150% / 200%）
 
 #: 界面字体。apply_theme 时按系统里实际有的字体定下来
 FONT_UI = "Microsoft YaHei UI"
@@ -196,8 +198,37 @@ _ICONS = {
 
 
 def px(value: float) -> int:
-    """按屏幕缩放换算像素。"""
+    """把"1 倍大小时的像素"换算成现在的像素（屏幕缩放 × 界面大小）。"""
     return int(round(value * _SCALE))
+
+
+def screen_scale() -> float:
+    """屏幕本身的缩放（不含「界面大小」）。游戏里的悬浮窗用这个，它有自己的大小设置。"""
+    return _SCREEN
+
+
+def ui_scale() -> float:
+    return _SCALE
+
+
+def enable_dpi_awareness() -> None:
+    """
+    告诉 Windows 这个程序自己会按 DPI 缩放（要在建任何窗口之前调）。
+
+    不说的话，在 4K 屏这类 150% / 200% 缩放下，Windows 会把整个窗口当成图片拉大，字和线条都是糊的。
+    说了之后窗口按真实像素画：字体按「点」算，Tk 会自己放大；写死的像素尺寸统一经过 :func:`px` 换算。
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)      # 系统 DPI 感知（Win 8.1+）
+        return
+    except (AttributeError, OSError):
+        pass
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()           # Win 7 / 8
+    except (AttributeError, OSError):
+        pass
 
 
 def ui_font(size: int = 10, bold: bool = False) -> tuple:
@@ -233,13 +264,31 @@ def _pick(families, candidates) -> Optional[str]:
 # --------------------------------------------------------------------------- #
 
 
-def apply_theme(root: tk.Misc) -> ttk.Style:
-    """定字体、刷 ttk 控件的颜色（Windows 默认主题不支持改色，所以切到 clam）。"""
-    global FONT_UI, _FONT_TITLE, _FONT_MONO, _ICON_FONT, _SCALE
+def apply_theme(root: tk.Misc, size: float = 1.0) -> ttk.Style:
+    """
+    定缩放和字体、刷 ttk 控件的颜色（Windows 默认主题不支持改色，所以切到 clam）。
+
+    :param size: 「界面大小」，1.0 = 标准。字体（按点算）和所有 px() 尺寸一起放大
+    """
+    global FONT_UI, _FONT_TITLE, _FONT_MONO, _ICON_FONT, _SCALE, _SCREEN
     try:
-        _SCALE = max(1.0, root.winfo_fpixels("1i") / 96.0)
+        dpi = root.winfo_fpixels("1i")
     except tk.TclError:
-        _SCALE = 1.0
+        dpi = 96.0
+    # KOUQIN_UI_SCALE：测试用，假装屏幕是 2 倍缩放（在普通屏幕上看 4K 下的样子）
+    try:
+        simulated = max(0.5, min(4.0, float(os.environ.get("KOUQIN_UI_SCALE", "") or 1.0)))
+    except ValueError:
+        simulated = 1.0
+    size = max(0.8, min(2.0, float(size or 1.0)))
+    _SCREEN = max(1.0, dpi / 96.0) * simulated
+    _SCALE = _SCREEN * size
+    factor = simulated * size
+    if abs(factor - 1.0) > 1e-3:
+        try:
+            root.tk.call("tk", "scaling", float(root.tk.call("tk", "scaling")) * factor)
+        except tk.TclError:
+            pass
     try:
         families = tkfont.families(root)
     except tk.TclError:
@@ -263,7 +312,7 @@ def apply_theme(root: tk.Misc) -> ttk.Style:
     for name in ("TCombobox", "TSpinbox"):
         style.configure(name, fieldbackground=P["entry_bg"], background=P["panel"], foreground=P["text"],
                         arrowcolor=P["text_dim"], bordercolor=P["border_strong"],
-                        lightcolor=P["entry_bg"], darkcolor=P["entry_bg"], borderwidth=1, padding=5,
+                        lightcolor=P["entry_bg"], darkcolor=P["entry_bg"], borderwidth=1, padding=px(5),
                         arrowsize=px(12))
         style.map(name, fieldbackground=[("readonly", P["entry_bg"])],
                   foreground=[("readonly", P["text"]), ("disabled", P["text_muted"])],
@@ -276,7 +325,7 @@ def apply_theme(root: tk.Misc) -> ttk.Style:
     root.option_add("*TCombobox*Listbox.foreground", P["text"])
     root.option_add("*TCombobox*Listbox.selectBackground", P["sel_bg"])
     root.option_add("*TCombobox*Listbox.selectForeground", P["text"])
-    root.option_add("*TCombobox*Listbox.font", ui_font(9))
+    root.option_add("*TCombobox*Listbox.font", ui_font(10))
     root.option_add("*TCombobox*Listbox.borderWidth", 0)
 
     # 细滚动条：只要滑道和滑块，不要两头的箭头
@@ -296,12 +345,12 @@ def apply_theme(root: tk.Misc) -> ttk.Style:
     # 在线曲库的表格
     style.layout("Treeview", [("Treeview.treearea", {"sticky": "nswe"})])
     style.configure("Treeview", background=P["panel"], fieldbackground=P["panel"], foreground=P["text"],
-                    rowheight=px(34), borderwidth=0, relief="flat", font=ui_font(10))
+                    rowheight=px(34), borderwidth=0, relief="flat", font=ui_font(11))
     style.map("Treeview", background=[("selected", P["guide_soft"])],
               foreground=[("selected", P["text"])])
     style.configure("Treeview.Heading", background=P["panel"], foreground=P["text_dim"], relief="flat",
                     borderwidth=0, bordercolor=P["border"], lightcolor=P["panel"], darkcolor=P["border"],
-                    padding=(px(8), px(6)), font=ui_font(9))
+                    padding=(px(8), px(6)), font=ui_font(10))
     style.map("Treeview.Heading", background=[("active", P["hover"])],
               foreground=[("active", P["text"])])
     return style
@@ -353,7 +402,7 @@ def make_button(master, text: str, command=None, kind: str = "normal",
                        icon_name=icon_name, **kwargs)
 
 
-def make_label(master, text: str = "", dim: bool = False, size: int = 9,
+def make_label(master, text: str = "", dim: bool = False, size: int = 10,
                bold: bool = False, **kwargs) -> tk.Label:
     """
     统一样式的文字标签。
@@ -383,12 +432,12 @@ def _bg_of(widget) -> str:
 
 def make_combobox(master, values, variable, width: int = 10, readonly: bool = True):
     return ttk.Combobox(master, values=list(values), textvariable=variable, width=width,
-                        state="readonly" if readonly else "normal", font=ui_font(9))
+                        state="readonly" if readonly else "normal", font=ui_font(10))
 
 
 def make_spinbox(master, variable, frm: float, to: float, increment: float = 1.0, width: int = 6):
     return ttk.Spinbox(master, from_=frm, to=to, increment=increment, textvariable=variable,
-                       width=width, font=ui_font(9), justify="center")
+                       width=width, font=ui_font(10), justify="center")
 
 
 def make_check(master, text: str, variable, command=None, bg: Optional[str] = None) -> tk.Checkbutton:
@@ -398,7 +447,7 @@ def make_check(master, text: str, variable, command=None, bg: Optional[str] = No
         master, text=text, variable=variable, command=command,
         bg=bg, fg=Palette["text"], selectcolor=Palette["entry_bg"],
         activebackground=bg, activeforeground=Palette["text"],
-        font=ui_font(9), bd=0, highlightthickness=0, cursor="hand2", anchor="w",
+        font=ui_font(10), bd=0, highlightthickness=0, cursor="hand2", anchor="w",
     )
 
 

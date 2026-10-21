@@ -41,7 +41,10 @@ from .disclaimer import ask_disclaimer
 from .library_page import LibraryPage
 from .overlay import OverlayController
 from .settings_page import SettingsPage
-from .theme import Palette, apply_theme, make_button, make_label, mono_font, px, set_appearance, title_font
+from .theme import (
+    Palette, apply_theme, enable_dpi_awareness, make_button, make_label, mono_font, px, screen_scale,
+    set_appearance, title_font,
+)
 from .widgets import RoundButton
 
 APP_NAME = "口琴工坊"
@@ -71,16 +74,17 @@ class MainWindow(tk.Tk):
     """主界面。"""
 
     def __init__(self) -> None:
+        # 4K 这类高缩放屏幕：先告诉 Windows 程序自己按 DPI 缩放，不然整个窗口会被拉大、发糊
+        enable_dpi_awareness()
         super().__init__()
-        # 外观要在建任何控件之前定下来：各页面建控件时直接读配色
+        # 外观和大小要在建任何控件之前定下来：各页面建控件时直接读配色和缩放
         self.settings = AppSettings.load()
         self.theme_name = set_appearance(self.settings.appearance)
         self.restart_requested = False
         self.title(f"{APP_NAME} — {APP_SUB}")
-        self.geometry("1160x760")
-        self.minsize(900, 600)
+        apply_theme(self, self.settings.ui_size)
+        self._fit_window()
         self.configure(bg=Palette["bg"])
-        apply_theme(self)
         self._dark_title_bar()
 
         # ---------------- 共享状态 ----------------
@@ -133,6 +137,14 @@ class MainWindow(tk.Tk):
         self.settings.installed_presets = True
         self.settings.save()
 
+    def _fit_window(self) -> None:
+        """窗口大小按缩放换算，但不超过屏幕（留出任务栏），居中放。"""
+        screen_w, screen_h = self.winfo_screenwidth(), self.winfo_screenheight()
+        width = min(px(1100), screen_w - px(40))
+        height = min(px(720), screen_h - px(90))
+        self.minsize(min(px(860), width), min(px(560), height))
+        self.geometry(f"{width}x{height}+{max(0, (screen_w - width) // 2)}+{max(0, (screen_h - height) // 3)}")
+
     def _dark_title_bar(self) -> None:
         """深色外观时把 Windows 的标题栏也换成深色（Win10 1809+ / Win11 才有，别的系统什么都不做）。"""
         if sys.platform != "win32" or self.theme_name != "dark":
@@ -158,21 +170,21 @@ class MainWindow(tk.Tk):
 
     def _build_nav(self) -> None:
         P = Palette
-        side = tk.Frame(self, bg=P["panel_alt"], width=px(184))
+        side = tk.Frame(self, bg=P["panel_alt"], width=px(168))
         side.grid(row=0, column=0, rowspan=2, sticky="ns")
         side.pack_propagate(False)
-        tk.Frame(side, bg=P["border"], width=1).pack(side=tk.RIGHT, fill=tk.Y)
+        tk.Frame(side, bg=P["border"], width=px(1)).pack(side=tk.RIGHT, fill=tk.Y)
         inner = tk.Frame(side, bg=P["panel_alt"])
-        inner.pack(fill=tk.BOTH, expand=True, padx=px(10), pady=(px(18), px(12)))
+        inner.pack(fill=tk.BOTH, expand=True, padx=px(8), pady=(px(14), px(10)))
 
-        tk.Label(inner, text=APP_NAME, font=title_font(17), bg=P["panel_alt"], fg=P["text"],
+        tk.Label(inner, text=APP_NAME, font=title_font(15), bg=P["panel_alt"], fg=P["text"],
                  anchor="w").pack(fill=tk.X, padx=px(10))
         make_label(inner, "三角洲行动 · 口琴", size=8, fg=P["text_muted"], anchor="w").pack(
-            fill=tk.X, padx=px(10), pady=(px(2), px(18)))
+            fill=tk.X, padx=px(10), pady=(px(2), px(12)))
 
         def nav_button(key: str, label: str, icon_name: str) -> RoundButton:
             button = RoundButton(inner, text=label, icon_name=icon_name, kind="nav", anchor="w",
-                                 height=36, size=10, padx=10, command=lambda: self.show_page(key))
+                                 height=40, size=11, padx=12, command=lambda: self.show_page(key))
             self._tab_buttons[key] = button
             return button
 
@@ -190,8 +202,8 @@ class MainWindow(tk.Tk):
         self.btn_stop.configure(state=tk.DISABLED)
 
         nav_button("settings", "设置", "settings").pack(fill=tk.X, pady=px(1))
-        RoundButton(inner, text="使用步骤", icon_name="help", kind="nav", anchor="w", height=36, size=10,
-                    padx=10, command=self.show_guide).pack(fill=tk.X, pady=px(1))
+        RoundButton(inner, text="使用步骤", icon_name="help", kind="nav", anchor="w", height=40, size=11,
+                    padx=12, command=self.show_guide).pack(fill=tk.X, pady=px(1))
         make_label(inner, "F6 开始 / 暂停　F8 停止", size=8, fg=P["text_muted"], anchor="w").pack(
             fill=tk.X, padx=px(10), pady=(px(10), 0))
 
@@ -223,19 +235,19 @@ class MainWindow(tk.Tk):
         bottom = tk.Frame(self, bg=P["bg"])
         bottom.grid(row=1, column=1, sticky="ew")
         bottom.grid_columnconfigure(0, weight=1)
-        tk.Frame(bottom, bg=P["border"], height=1).grid(row=0, column=0, sticky="ew")
+        tk.Frame(bottom, bg=P["border"], height=px(1)).grid(row=0, column=0, sticky="ew")
 
         self.lbl_status = make_label(bottom, "就绪", dim=True, anchor="w")
-        self.lbl_status.grid(row=1, column=0, sticky="ew", padx=px(20), pady=(px(6), 0))
+        self.lbl_status.grid(row=1, column=0, sticky="ew", padx=px(16), pady=(px(4), 0))
 
         # 注意：控件叫 log_view，方法叫 log()。
         # 早先两者同名，结果 self.log 被控件覆盖，调用 self.log(...) 直接炸。
         self.log_view = tk.Text(
             bottom, height=2, bg=P["bg"], fg=P["text_muted"], relief=tk.FLAT, bd=0,
-            font=mono_font(8), wrap="none", padx=px(20), pady=px(2), insertbackground=P["text"],
+            font=mono_font(9), wrap="none", padx=px(16), pady=px(1), insertbackground=P["text"],
             selectbackground=P["sel_bg"], highlightthickness=0,
         )
-        self.log_view.grid(row=2, column=0, sticky="ew", pady=(px(2), px(8)))
+        self.log_view.grid(row=2, column=0, sticky="ew", pady=(px(1), px(6)))
         self.log_view.configure(state=tk.DISABLED)
 
     # ================================================================== #
@@ -579,6 +591,7 @@ class MainWindow(tk.Tk):
         for settings in (self.settings, self.page_settings.settings):
             settings.overlay_x, settings.overlay_y = int(x), int(y)
             settings.overlay_anchor = "custom"
+            settings.overlay_pos_scale = screen_scale()
         self.settings.save()
         self.page_settings.on_overlay_moved()
 

@@ -77,11 +77,11 @@ class CellPicker(tk.Toplevel):
         root.pack(fill=tk.BOTH, expand=True)
 
         make_label(root, "先选音高，再点要用的音", bg=Palette["bg"],
-                   dim=True).pack(anchor="w", pady=(0, 8))
+                   dim=True).pack(anchor="w", pady=(0, px(8)))
 
         # ---- 音高档位 ----
         oct_bar = tk.Frame(root, bg=Palette["bg"])
-        oct_bar.pack(fill=tk.X, pady=(0, 12))
+        oct_bar.pack(fill=tk.X, pady=(0, px(12)))
 
         self._oct_buttons = {}
         colors = octave_colors()
@@ -101,18 +101,18 @@ class CellPicker(tk.Toplevel):
         for index in range(7):
             row, col = divmod(index, 4)
             button = self._make_note_button(grid, index)
-            button.grid(row=row, column=col, padx=3, pady=3, sticky="nsew")
+            button.grid(row=row, column=col, padx=px(3), pady=px(3), sticky="nsew")
             self._note_buttons.append(button)
         for col in range(4):
             grid.grid_columnconfigure(col, weight=1, uniform="note")
 
         # ---- 底部 ----
         bottom = tk.Frame(root, bg=Palette["bg"])
-        bottom.pack(fill=tk.X, pady=(14, 0))
+        bottom.pack(fill=tk.X, pady=(px(14), 0))
 
         make_button(bottom, "— 延长（接着吹上一个音）", self._pick_hold,
                     kind="accent" if self.current.is_hold else "normal").pack(side=tk.LEFT)
-        make_button(bottom, "休止（这一拍不吹）", self._pick_rest, kind="ghost").pack(side=tk.LEFT, padx=(8, 0))
+        make_button(bottom, "休止（这一拍不吹）", self._pick_rest, kind="ghost").pack(side=tk.LEFT, padx=(px(8), 0))
         make_button(bottom, "取消", self.destroy, kind="ghost").pack(side=tk.RIGHT)
 
         self._refresh()

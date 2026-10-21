@@ -43,7 +43,7 @@ from kouqin.layout import Combo, Layout, MouseMod
 from kouqin.practice import Judge, Mark, Verdict
 from kouqin.tune import OCTAVE_COLORS, STEP_DIGITS
 
-from .theme import blend
+from .theme import blend, screen_scale
 
 __all__ = ["OverlayController", "OverlayWindow", "Frame", "LongPressDrag"]
 
@@ -522,12 +522,9 @@ class OverlayWindow(tk.Toplevel):
         self._cache: Dict[int, dict] = {}
         self._drag: Optional[Tuple[int, int]] = None
         self._visible = True
-        # 进程开了高 DPI 感知时（比如 150% 缩放的屏幕），Tk 的像素就是物理像素，
-        # 按 96 DPI 设计的尺寸会显得很小，这里跟着系统缩放一起放大
-        try:
-            self._dpi = max(1.0, self.winfo_fpixels("1i") / 96.0)
-        except tk.TclError:
-            self._dpi = 1.0
+        # 进程开了高 DPI 感知（见 theme.enable_dpi_awareness），Tk 的像素就是物理像素，
+        # 按 96 DPI 设计的尺寸要跟着屏幕缩放放大；不跟主界面的「界面大小」走，悬浮窗有自己的大小设置
+        self._dpi = screen_scale()
         self.geo = _Geometry(self._dpi, True)
         self._press = LongPressDrag(self._dpi)
 
@@ -1236,10 +1233,15 @@ class OverlayController:
     def apply_settings(self, settings) -> None:
         if self.window is None:
             return
+        x, y = settings.overlay_x, settings.overlay_y
+        if x is not None and y is not None:
+            # 拖过的位置是按当时的屏幕缩放存的；老版本不感知 DPI，存的是缩放前的坐标
+            saved = getattr(settings, "overlay_pos_scale", 0.0) or 1.0
+            ratio = screen_scale() / saved
+            x, y = int(round(x * ratio)), int(round(y * ratio))
         self.window.apply_options(settings.overlay_scale, settings.overlay_alpha,
                                   settings.overlay_lookahead, settings.overlay_keyboard,
-                                  settings.overlay_x, settings.overlay_y,
-                                  settings.overlay_anchor,
+                                  x, y, settings.overlay_anchor,
                                   backdrop=getattr(settings, "overlay_backdrop", 0.45))
 
     def _on_moved(self, x: int, y: int) -> None:

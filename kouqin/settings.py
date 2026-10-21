@@ -140,12 +140,14 @@ class AppSettings:
     overlay_anchor: str = "upper"       # 悬浮窗位置预设：top / upper / lower / bottom / custom
     overlay_x: Optional[int] = None     # 拖动过的位置（overlay_anchor 为 custom 时用）
     overlay_y: Optional[int] = None
+    overlay_pos_scale: float = 0.0      # 保存位置时的屏幕缩放（0 = 老配置，当时程序不感知 DPI，坐标是缩放前的）
 
     # --- 在线曲库 ---
     online_library_base: str = ""       # 空 = 用默认地址（kouqin.online.DEFAULT_BASE）
 
     # --- 外观 ---
     appearance: str = "system"          # system / light / dark
+    ui_size: float = 1.0                # 界面大小：1.0 标准，1.15 大，1.3 更大……（乘在屏幕缩放上）
 
     # --- 其它 ---
     follow_playhead: bool = True
@@ -239,6 +241,8 @@ class AppSettings:
         settings.overlay_backdrop = clamp(data.get("overlay_backdrop", 0.45), 0.0, 0.9, 0.45)
         if data.get("appearance") in APPEARANCES:
             settings.appearance = data["appearance"]
+        settings.ui_size = clamp(data.get("ui_size", 1.0), 0.8, 1.6, 1.0)
+        settings.overlay_pos_scale = clamp(data.get("overlay_pos_scale", 0.0), 0.0, 4.0, 0.0)
         settings.overlay_keyboard = bool(data.get("overlay_keyboard", True))
         for attr in ("overlay_x", "overlay_y"):
             value = data.get(attr)
@@ -300,7 +304,8 @@ class AppSettings:
                      "overlay_in_auto", "guide_wait", "guide_speed", "overlay_lookahead",
                      "overlay_scale", "overlay_alpha", "overlay_keyboard",
                      "overlay_anchor", "overlay_x", "overlay_y", "legato",
-                     "online_library_base", "overlay_backdrop", "appearance"):
+                     "online_library_base", "overlay_backdrop", "appearance", "ui_size",
+                     "overlay_pos_scale"):
             setattr(self, attr, getattr(fresh, attr))
         self.installed_presets = keep_presets
         self.preset_revision = keep_revision

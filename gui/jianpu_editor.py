@@ -15,7 +15,7 @@ from typing import Callable, Optional
 from kouqin.jianpu import JIANPU_TEMPLATE, describe, parse_jianpu
 from kouqin.smf import NOTE_NAMES
 
-from .theme import Palette, make_button, make_label
+from .theme import Palette, make_button, make_label, px
 
 SYNTAX_HELP = """\
  1 2 3 4 5 6 7      do re mi fa sol la si
@@ -65,15 +65,15 @@ class JianpuEditor(tk.Toplevel):
 
         # 左：编辑区
         left = tk.Frame(self, bg=Palette["bg"])
-        left.grid(row=0, column=0, sticky="nsew", padx=(8, 4), pady=8)
+        left.grid(row=0, column=0, sticky="nsew", padx=(px(8), px(4)), pady=px(8))
         left.grid_rowconfigure(1, weight=1)
         left.grid_columnconfigure(0, weight=1)
 
-        make_label(left, "谱面", bold=True, bg=Palette["bg"]).grid(row=0, column=0, sticky="w", pady=(0, 4))
+        make_label(left, "谱面", bold=True, bg=Palette["bg"]).grid(row=0, column=0, sticky="w", pady=(0, px(4)))
         self.text = tk.Text(
             left, bg=Palette["entry_bg"], fg=Palette["text"],
             insertbackground=Palette["accent"], relief=tk.FLAT, bd=0,
-            font=("Consolas", 12), undo=True, wrap="word", padx=10, pady=8,
+            font=("Consolas", 12), undo=True, wrap="word", padx=px(10), pady=px(8),
             selectbackground=Palette["sel_bg"], selectforeground=Palette["text"],
         )
         self.text.grid(row=1, column=0, sticky="nsew")
@@ -86,34 +86,34 @@ class JianpuEditor(tk.Toplevel):
 
         # 右：速查 + 校验
         right = tk.Frame(self, bg=Palette["panel"])
-        right.grid(row=0, column=1, sticky="nsew", padx=(4, 8), pady=8)
+        right.grid(row=0, column=1, sticky="nsew", padx=(px(4), px(8)), pady=px(8))
         right.grid_rowconfigure(2, weight=1)
         right.grid_columnconfigure(0, weight=1)
 
-        make_label(right, "语法速查", bold=True).grid(row=0, column=0, sticky="w", padx=10, pady=(10, 4))
+        make_label(right, "语法速查", bold=True).grid(row=0, column=0, sticky="w", padx=px(10), pady=(px(10), px(4)))
         help_box = tk.Text(
             right, height=15, bg=Palette["entry_bg"], fg=Palette["text_dim"],
-            relief=tk.FLAT, bd=0, font=("Consolas", 9), wrap="none", padx=8, pady=6,
+            relief=tk.FLAT, bd=0, font=("Consolas", 9), wrap="none", padx=px(8), pady=px(6),
         )
-        help_box.grid(row=1, column=0, sticky="ew", padx=10)
+        help_box.grid(row=1, column=0, sticky="ew", padx=px(10))
         help_box.insert("1.0", SYNTAX_HELP)
         help_box.configure(state=tk.DISABLED)
 
-        make_label(right, "解析结果", bold=True).grid(row=2, column=0, sticky="nw", padx=10, pady=(12, 4))
+        make_label(right, "解析结果", bold=True).grid(row=2, column=0, sticky="nw", padx=px(10), pady=(px(12), px(4)))
         self.result = tk.Text(
             right, height=8, bg=Palette["entry_bg"], fg=Palette["text"],
-            relief=tk.FLAT, bd=0, font=("Microsoft YaHei UI", 9), wrap="word", padx=8, pady=6,
+            relief=tk.FLAT, bd=0, font=("Microsoft YaHei UI", 9), wrap="word", padx=px(8), pady=px(6),
         )
-        self.result.grid(row=3, column=0, sticky="nsew", padx=10, pady=(0, 8))
+        self.result.grid(row=3, column=0, sticky="nsew", padx=px(10), pady=(0, px(8)))
         self.result.configure(state=tk.DISABLED)
         right.grid_rowconfigure(3, weight=1)
 
         # 底：按钮
         bar = tk.Frame(self, bg=Palette["bg"])
         bar.grid(row=1, column=0, columnspan=2, sticky="ew")
-        make_button(bar, "取消", self.destroy, kind="ghost").pack(side=tk.RIGHT, padx=(4, 10), pady=8)
-        make_button(bar, "载入谱面  (Ctrl+Enter)", self._apply, kind="accent").pack(side=tk.RIGHT, padx=4, pady=8)
-        make_button(bar, "恢复模板", self._reset_template, kind="ghost").pack(side=tk.LEFT, padx=10, pady=8)
+        make_button(bar, "取消", self.destroy, kind="ghost").pack(side=tk.RIGHT, padx=(px(4), px(10)), pady=px(8))
+        make_button(bar, "载入谱面  (Ctrl+Enter)", self._apply, kind="accent").pack(side=tk.RIGHT, padx=px(4), pady=px(8))
+        make_button(bar, "恢复模板", self._reset_template, kind="ghost").pack(side=tk.LEFT, padx=px(10), pady=px(8))
 
     # ------------------------------------------------------------------ #
 

@@ -15,7 +15,7 @@ from __future__ import annotations
 import tkinter as tk
 from typing import List, Tuple
 
-from .theme import Palette, make_button, make_label, title_font
+from .theme import Palette, make_button, make_label, px, title_font
 
 #: 最顶上的两条硬性红线
 RED_LINES: Tuple[str, ...] = (
@@ -80,43 +80,43 @@ class DisclaimerDialog(tk.Toplevel):
             pass
 
     def _build(self) -> None:
-        root = tk.Frame(self, bg=Palette["bg"], padx=22, pady=18)
+        root = tk.Frame(self, bg=Palette["bg"], padx=px(22), pady=px(18))
         root.pack(fill=tk.BOTH, expand=True)
 
         tk.Label(root, text="使用须知", font=title_font(20), bg=Palette["bg"], fg=Palette["text"]).pack(anchor="w")
         make_label(root, "开始之前，请花 20 秒读完下面这些", dim=True,
-                   bg=Palette["bg"]).pack(anchor="w", pady=(4, 14))
+                   bg=Palette["bg"]).pack(anchor="w", pady=(px(4), px(14)))
 
         # ---- 红线 ----
         red = tk.Frame(root, bg=Palette["danger_soft"], highlightthickness=1, highlightbackground=Palette["danger_soft"])
         red.pack(fill=tk.X)
-        inner = tk.Frame(red, bg=Palette["danger_soft"], padx=16, pady=13)
+        inner = tk.Frame(red, bg=Palette["danger_soft"], padx=px(16), pady=px(13))
         inner.pack(fill=tk.X)
         for line in RED_LINES:
             tk.Label(inner, text=line, bg=Palette["danger_soft"], fg=Palette["danger"],
                      font=("Microsoft YaHei UI", 12, "bold"), anchor="w",
-                     wraplength=560, justify=tk.LEFT).pack(anchor="w", pady=2)
+                     wraplength=px(560), justify=tk.LEFT).pack(anchor="w", pady=px(2))
 
         # ---- 正文 ----
         body = tk.Frame(root, bg=Palette["bg"])
-        body.pack(fill=tk.BOTH, expand=True, pady=(16, 0))
+        body.pack(fill=tk.BOTH, expand=True, pady=(px(16), 0))
 
         for head, text in SECTIONS:
             block = tk.Frame(body, bg=Palette["bg"])
-            block.pack(fill=tk.X, pady=(0, 11))
+            block.pack(fill=tk.X, pady=(0, px(11)))
 
             tk.Label(block, text="· " + head, bg=Palette["bg"], fg=Palette["text"],
                      font=("Microsoft YaHei UI", 10, "bold"), anchor="w").pack(anchor="w")
             tk.Label(block, text=text, bg=Palette["bg"], fg=Palette["text_dim"],
                      font=("Microsoft YaHei UI", 9), anchor="w", justify=tk.LEFT,
-                     wraplength=580).pack(anchor="w", padx=(12, 0), pady=(2, 0))
+                     wraplength=px(580)).pack(anchor="w", padx=(px(12), 0), pady=(px(2), 0))
 
         make_label(root, "完整条款见程序目录下的 DISCLAIMER.md 与 LICENSE",
-                   dim=True, bg=Palette["bg"], size=9).pack(anchor="w", pady=(6, 0))
+                   dim=True, bg=Palette["bg"], size=9).pack(anchor="w", pady=(px(6), 0))
 
         # ---- 按钮 ----
         bar = tk.Frame(root, bg=Palette["bg"])
-        bar.pack(fill=tk.X, pady=(18, 0))
+        bar.pack(fill=tk.X, pady=(px(18), 0))
 
         make_button(bar, "不同意，退出程序", self._decline, kind="ghost",
                     width=17).pack(side=tk.LEFT)
@@ -124,7 +124,7 @@ class DisclaimerDialog(tk.Toplevel):
                     width=17).pack(side=tk.RIGHT)
 
         make_label(root, "（点「同意」即表示你已阅读、理解并自愿接受全部条款和风险）",
-                   dim=True, bg=Palette["bg"], size=8).pack(anchor="e", pady=(8, 0))
+                   dim=True, bg=Palette["bg"], size=8).pack(anchor="e", pady=(px(8), 0))
 
     # ------------------------------------------------------------------ #
 

@@ -204,8 +204,8 @@ class RoundButton(tk.Canvas):
 
     def __init__(self, master, text: str = "", command: Optional[Callable] = None,
                  kind: str = "normal", width: Optional[int] = None, icon_name: Optional[str] = None,
-                 bg: Optional[str] = None, height: int = 32, radius: Optional[int] = None,
-                 size: int = 9, bold: bool = False, anchor: str = "center", padx: int = 12,
+                 bg: Optional[str] = None, height: int = 34, radius: Optional[int] = None,
+                 size: int = 10, bold: bool = False, anchor: str = "center", padx: int = 14,
                  state: str = "normal", colors: Optional[Tuple[str, Optional[str], str]] = None,
                  **_ignored) -> None:
         self._surface = bg or _surface_of(master)
@@ -370,8 +370,8 @@ class RoundButton(tk.Canvas):
 
 def make_badge(master, text: str, tone: str = "neutral", bg: Optional[str] = None) -> RoundButton:
     """小标签：tone = accent（陶土）/ guide（蓝）/ warn / neutral。"""
-    return RoundButton(master, text=text, kind=f"badge_{tone}", bg=bg, height=20, radius=10,
-                       size=8, padx=8)
+    return RoundButton(master, text=text, kind=f"badge_{tone}", bg=bg, height=22, radius=11,
+                       size=9, padx=9)
 
 
 # --------------------------------------------------------------------------- #
@@ -432,8 +432,8 @@ class Segmented(RoundedPanel):
     """分段切换（我的曲库 / 在线曲库、浅色 / 深色 / 跟随系统 这类）。"""
 
     def __init__(self, master, options: Sequence[Tuple[str, str]], command: Optional[Callable] = None,
-                 value: Optional[str] = None, bg: Optional[str] = None, size: int = 9,
-                 height: int = 28) -> None:
+                 value: Optional[str] = None, bg: Optional[str] = None, size: int = 10,
+                 height: int = 30) -> None:
         super().__init__(master, fill=Palette["panel_alt"], outline=Palette["border"], radius=9,
                          padx=2, pady=2, bg=bg)
         self._command = command
@@ -476,11 +476,11 @@ class SearchEntry(RoundedPanel):
                      font=(family or theme.FONT_UI, 10)).pack(side=tk.LEFT, padx=(0, px(6)))
         self.entry = tk.Entry(self.body, textvariable=textvariable, width=width, relief=tk.FLAT, bd=0,
                               highlightthickness=0, bg=self.fill, fg=Palette["text"],
-                              insertbackground=Palette["text"], font=theme.ui_font(10),
+                              insertbackground=Palette["text"], font=theme.ui_font(11),
                               selectbackground=Palette["sel_bg"], selectforeground=Palette["text"])
         self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=px(2))
         self._placeholder = tk.Label(self.body, text=placeholder, bg=self.fill, fg=Palette["text_muted"],
-                                     font=theme.ui_font(10), cursor="xterm")
+                                     font=theme.ui_font(11), cursor="xterm")
         self._placeholder.bind("<Button-1>", lambda e: self.entry.focus_set())
         self.entry.bind("<FocusIn>", lambda e: self._focus(True), add="+")
         self.entry.bind("<FocusOut>", lambda e: self._focus(False), add="+")

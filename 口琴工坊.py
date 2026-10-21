@@ -499,6 +499,7 @@ def cmd_selftest(args) -> int:
             settings.overlay_x, settings.overlay_y = -1600, 420      # 主屏左边的副屏
             settings.overlay_backdrop = 0.7
             settings.appearance = "dark"
+            settings.ui_size = 1.3
             assert settings.save(path), "写配置文件失败"
             back = AppSettings.load(path)
             assert back.keys == list("asdfghjk"), "键位没存住"
@@ -507,6 +508,7 @@ def cmd_selftest(args) -> int:
             assert back.guide_wait and abs(back.overlay_scale - 1.25) < 0.01, "跟弹选项没存住"
             assert (back.overlay_x, back.overlay_y) == (-1600, 420), "悬浮窗位置没存住"
             assert abs(back.overlay_backdrop - 0.7) < 0.01 and back.appearance == "dark", "外观 / 底板透明度没存住"
+            assert abs(back.ui_size - 1.3) < 0.01, "界面大小没存住"
             fresh = AppSettings()
             assert fresh.keys == list("zxcvbnm,") and fresh.appearance == "system", "出厂设置应是游戏默认键位、跟随系统"
             assert back.copy().keys is not back.keys, "copy() 不能和原对象共用列表"

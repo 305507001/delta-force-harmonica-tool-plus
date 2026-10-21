@@ -265,8 +265,7 @@ class Smoke:
         page = self.window.page_library
         self.say(self.window.player.state == "paused" and page.btn_pause.cget("text").endswith("继续"),
                  "暂停后按钮变成「继续」")
-        bar = page.progress
-        x = 8 + (max(40, bar.winfo_width()) - 16) * 0.6
+        x = page.x_for_ratio(0.6)
         page._scrub_move(SimpleNamespace(x=x))
         dragging = page.lbl_time.cget("text").startswith("→")
         page._scrub_end(SimpleNamespace(x=x))
