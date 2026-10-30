@@ -122,6 +122,8 @@ class Smoke:
             self.step_stop_hotkey_check,
             self.step_stop_button,
             self.step_pause_hotkey,
+            self.step_hit_effects,
+            self.step_hit_effects_check,
             self.step_hotkey_settings,
             self.step_seek_bar,
             self.step_seek_finish,
@@ -352,6 +354,41 @@ class Smoke:
         self.window.stop()
         self.window._hotkey_pause()
         self.say(self.window.player.state == "idle", "没在播放时按 F7 不会开始演奏")
+        self.window.settings.speed = 4.0
+
+    def step_hit_effects(self) -> None:
+        # 自动演奏：音符走过判定线就放特效
+        self.window.settings.overlay_in_auto = True
+        self.window.settings.hit_effects = True
+        self._start_long_auto()
+        overlay = self.window.overlay.window
+        self._fx_before = (overlay.effects.spawned, overlay.effects.full) if overlay else (0, 0)
+        deadline = time.time() + 2.5
+        while time.time() < deadline:
+            self.window.update()
+            time.sleep(0.01)
+
+    def step_hit_effects_check(self) -> None:
+        overlay = self.window.overlay.window
+        spawned = overlay.effects.spawned - self._fx_before[0] if overlay else 0
+        full = overlay.effects.full - self._fx_before[1] if overlay else 0
+        self.say(spawned >= 2 and full >= 1, "自动演奏时按中的音放了命中特效",
+                 f"放了 {spawned} 次，其中带鸽子的 {full} 次")
+        self.window.stop()
+        self.window.update()
+        visible = [i for i in overlay.canvas.find_withtag("fx")
+                   if overlay.canvas.itemcget(i, "state") != "hidden"] if overlay else []
+        self.say(not overlay.effects.active and not visible, "停止后特效全部收起", f"还剩 {len(visible)} 个")
+        self.window.settings.hit_effects = False
+        self._start_long_auto()
+        before = overlay.effects.spawned
+        deadline = time.time() + 1.2
+        while time.time() < deadline:
+            self.window.update()
+            time.sleep(0.01)
+        self.say(overlay.effects.spawned == before, "关掉命中特效后不再放")
+        self.window.stop()
+        self.window.settings.hit_effects = True
         self.window.settings.speed = 4.0
 
     def step_hotkey_settings(self) -> None:

@@ -31,6 +31,8 @@ from __future__ import annotations
 
 import bisect
 import ctypes
+import math
+import os
 import sys
 import time
 import tkinter as tk
@@ -486,6 +488,165 @@ class _Backdrop(tk.Toplevel):
             pass
 
 
+#: 鸽子图片（Noto Emoji，Apache 2.0，见 gui/assets/dove/NOTICE.txt），按宽度预先缩好了几种尺寸
+_DOVE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "dove")
+_DOVE_WIDTHS = (12, 16, 20, 24, 28, 32, 38, 44, 52, 60, 72, 88, 104, 120)
+#: 音符：(字符, 颜色)
+_FX_NOTES = (("\u266a", "#f1efe8"), ("\u266b", "#fac775"), ("\u266c", "#85b7eb"))
+
+
+def _keyframes(t: float, frames: Sequence[Tuple[float, ...]]) -> Tuple[float, ...]:
+    """分段线性插值：frames 是 [(时刻 0~1, 值...)]。"""
+    t = max(0.0, min(1.0, t))
+    for (t0, *v0), (t1, *v1) in zip(frames, frames[1:]):
+        if t <= t1:
+            u = 0.0 if t1 == t0 else (t - t0) / (t1 - t0)
+            return tuple(a + (b - a) * u for a, b in zip(v0, v1))
+    return tuple(frames[-1][1:])
+
+
+def _ease_out(t: float) -> float:
+    return 1 - (1 - max(0.0, min(1.0, t))) ** 3
+
+
+class Effects:
+    """
+    命中特效：判定线上扩散的光环 + 往右上方飞走的鸽子 + 三个跳出去的音符。
+
+    为了少占资源：图形一开始就建好放进池子，用的时候拿出来、每帧只改位置和大小，用完藏起来放回去，
+    不反复新建 / 删除；鸽子"缩小"是换成预先缩好的小图，不在运行时缩放图片。
+    Tk 不能让单个图形半透明，所以特效是"飞走、缩小、消失"，不是慢慢变淡。
+    """
+
+    HIT_S = 0.9          # 一次特效多长
+    MAX_FULL = 3         # 同时最多几个完整特效（多了只放光环）
+    DENSE_S = 0.15       # 两个音挨得这么近，后一个只放光环
+
+    def __init__(self, canvas: tk.Canvas, px: Callable[[float], int]) -> None:
+        self.c = canvas
+        self.px = px
+        self.active: List[dict] = []
+        self.spawned = 0          # 一共放过几次（完整的 / 只有光环的都算），测试和测速用
+        self.full = 0             # 其中带鸽子和音符的完整特效
+        self._pool: Dict[str, List[int]] = {"ring": [], "dove": [], "note": []}
+        self._last_full = -1e9
+        self._doves: Dict[int, tk.PhotoImage] = {}
+        self._dove_ok = os.path.isdir(_DOVE_DIR)
+        self._note_family = "Segoe UI Symbol" if _IS_WIN else "Arial Unicode MS"
+
+    # ---------------- 素材 ----------------
+
+    def dove(self, width: float) -> Optional[tk.PhotoImage]:
+        """宽度最接近 ``width`` 的那张鸽子图（第一次用到才读文件）。"""
+        if not self._dove_ok:
+            return None
+        best = min(_DOVE_WIDTHS, key=lambda w: abs(w - width))
+        image = self._doves.get(best)
+        if image is None:
+            try:
+                image = tk.PhotoImage(master=self.c, file=os.path.join(_DOVE_DIR, f"dove_{best}.png"))
+            except tk.TclError:
+                self._dove_ok = False
+                return None
+            self._doves[best] = image
+        return image
+
+    def _take(self, kind: str) -> int:
+        pool = self._pool[kind]
+        if pool:
+            item = pool.pop()
+            self.c.itemconfigure(item, state="normal")
+            return item
+        if kind == "ring":
+            return self.c.create_oval(0, 0, 1, 1, outline="#f0997b", width=2, tags=("fx",))
+        if kind == "dove":
+            return self.c.create_image(0, 0, tags=("fx",))
+        return self.c.create_text(0, 0, text="", tags=("fx",))
+
+    def _give(self, kind: str, item: int) -> None:
+        self.c.itemconfigure(item, state="hidden")
+        self._pool[kind].append(item)
+
+    # ---------------- 放特效 ----------------
+
+    def spawn_hit(self, now: float, x: float, y: float) -> None:
+        full = (now - self._last_full >= self.DENSE_S
+                and sum(1 for e in self.active if e.get("dove")) < self.MAX_FULL)
+        effect = {"t0": now, "x": x, "y": y, "ring": self._take("ring"), "dove": None, "notes": []}
+        self.spawned += 1
+        if full:
+            self._last_full = now
+            self.full += 1
+            if self.dove(26) is not None:
+                effect["dove"] = self._take("dove")
+            for index, (glyph, color) in enumerate(_FX_NOTES):
+                item = self._take("note")
+                self.c.itemconfigure(item, text=glyph, fill=color)
+                dx = (index - 1) * 26 + (index - 1) * 4
+                dy = -(36 + index * 9)
+                effect["notes"].append((item, dx, dy))
+        self.active.append(effect)
+
+    def update(self, now: float) -> bool:
+        """每帧调一次，返回还有没有特效在放。"""
+        px = self.px
+        for effect in list(self.active):
+            t = now - effect["t0"]
+            u = t / self.HIT_S
+            if u >= 1.0:
+                self._release(effect)
+                continue
+            x, y = effect["x"], effect["y"]
+            ring = effect["ring"]
+            if ring is not None:
+                if t < 0.4:
+                    r = px(13 + 20 * _ease_out(t / 0.4))
+                    self.c.coords(ring, x - r, y - r, x + r, y + r)
+                    self.c.itemconfigure(ring, width=max(1, px(2 * (1 - t / 0.4) + 0.4)))
+                else:
+                    self._give("ring", ring)
+                    effect["ring"] = None
+            dove = effect["dove"]
+            if dove is not None:
+                ox, oy, scale = _keyframes(u, [(0, 0, 0, .35), (.18, 0, -9, 1.15), (.7, 34, -62, 1), (1, 48, -80, .05)])
+                image = self.dove(px(26) * scale) if scale > 0.08 else None
+                if image is None:
+                    self.c.itemconfigure(dove, state="hidden")
+                else:
+                    self.c.itemconfigure(dove, image=image, state="normal")
+                    self.c.coords(dove, x + px(ox), y + px(oy - 4))
+            for item, dx, dy in effect["notes"]:
+                ox, oy, scale = _keyframes(u / 0.89, [(0, 0, 0, .4), (.55, dx * .6, dy, 1.1), (1, dx, dy * .45, .05)])
+                if scale < 0.12:
+                    self.c.itemconfigure(item, state="hidden")
+                    continue
+                self.c.itemconfigure(item, state="normal",
+                                     font=(self._note_family, -max(4, px(18 * scale)), "bold"))
+                self.c.coords(item, x + px(ox), y + px(oy))
+        if self.active:
+            self.c.tag_raise("fx")
+        return bool(self.active)
+
+    def _release(self, effect: dict) -> None:
+        if effect["ring"] is not None:
+            self._give("ring", effect["ring"])
+        if effect["dove"] is not None:
+            self._give("dove", effect["dove"])
+        for item, _dx, _dy in effect["notes"]:
+            self._give("note", item)
+        self.active.remove(effect)
+
+    def clear(self) -> None:
+        for effect in list(self.active):
+            self._release(effect)
+
+    def forget(self) -> None:
+        """画布被清空重建了（换大小）：池子里的图形都没了。"""
+        self.active.clear()
+        for pool in self._pool.values():
+            pool.clear()
+
+
 class OverlayWindow(tk.Toplevel):
     """
     悬浮窗本体：只负责窗口属性（置顶 / 穿透 / 拖动）和照着 :class:`Frame` 画图。
@@ -523,6 +684,10 @@ class OverlayWindow(tk.Toplevel):
         self._cache: Dict[int, dict] = {}
         self._drag: Optional[Tuple[int, int]] = None
         self._visible = True
+        self._pos = (0, 0)                 # 面板左上角在屏幕上的位置（内容窗口上面还多一块透明区）
+        self._top = 0                      # 内容窗口上方给特效留的透明区高度
+        self._bounce: Dict[str, float] = {}     # 键帽跳一下：键 -> 开始时间
+        self._cap_dy: List[int] = []
         # 进程开了高 DPI 感知（见 theme.enable_dpi_awareness），Tk 的像素就是物理像素，
         # 按 96 DPI 设计的尺寸要跟着屏幕缩放放大；不跟主界面的「界面大小」走，悬浮窗有自己的大小设置
         self._dpi = screen_scale()
@@ -535,6 +700,7 @@ class OverlayWindow(tk.Toplevel):
         self.canvas.bind("<B1-Motion>", self._drag_move)
         self.canvas.bind("<ButtonRelease-1>", self._drag_end)
         self.canvas.bind("<Double-Button-1>", lambda e: self._on_lock())
+        self.effects = Effects(self.canvas, lambda v: self.geo.px(v))
 
         for name, value in (("-topmost", True), ("-alpha", self._alpha),
                             ("-transparentcolor", TRANSPARENT)):
@@ -610,12 +776,18 @@ class OverlayWindow(tk.Toplevel):
         _topmost(self)
 
     def _move_to(self, x: int, y: int, size: bool = False) -> None:
-        """两层一起挪（Tk 的几何串里负坐标要写成 "+-100"）。"""
+        """
+        两层一起挪。``x, y`` 是面板左上角；内容窗口比面板高出一块（给特效飞），所以往上多放 ``_top``。
+        （Tk 的几何串里负坐标要写成 "+-100"。）
+        """
         g = self.geo
-        spec = f"{g.w}x{g.h}+{int(x)}+{int(y)}" if size else f"+{int(x)}+{int(y)}"
+        x, y = int(x), int(y)
+        self._pos = (x, y)
+        top = y - self._top
+        spec = f"{g.w}x{g.h + self._top}+{x}+{top}" if size else f"+{x}+{top}"
         self.geometry(spec)
         if self._backdrop is not None:
-            self._backdrop.geometry(f"{g.w}x{g.h}+{int(x)}+{int(y)}")
+            self._backdrop.geometry(f"{g.w}x{g.h}+{x}+{y}")
 
     def set_locked(self, locked: bool) -> None:
         """锁定 = 点击穿透、不能拖；解锁 = 可以用鼠标拖到想要的位置。"""
@@ -677,7 +849,7 @@ class OverlayWindow(tk.Toplevel):
     def _drag_start(self, event) -> None:
         if self._locked:
             return
-        self._drag = (event.x_root - self.winfo_x(), event.y_root - self.winfo_y())
+        self._drag = (event.x_root - self._pos[0], event.y_root - self._pos[1])
 
     def _drag_move(self, event) -> None:
         if not self._drag:
@@ -689,7 +861,7 @@ class OverlayWindow(tk.Toplevel):
         if not self._drag:
             return
         self._drag = None
-        self._on_moved(self.winfo_x(), self.winfo_y())
+        self._on_moved(*self._pos)
 
     # ------------------------------------------------------------------ #
     # 长按拖动（锁定状态下）
@@ -703,7 +875,7 @@ class OverlayWindow(tk.Toplevel):
         """每帧调一次：锁定、显示着的时候看看是不是有人在长按悬浮窗。"""
         if not self._locked or not self._visible:
             if self._press.dragging:
-                self.apply_press(("drop", self.winfo_x(), self.winfo_y()))
+                self.apply_press(("drop", *self._pos))
             self._press.state = "idle"
             return
         state = _mouse_state()
@@ -711,7 +883,7 @@ class OverlayWindow(tk.Toplevel):
             return
         down, x, y, showing = state
         action = self._press.step(time.perf_counter(), down, x, y,
-                                  (self.winfo_x(), self.winfo_y(), self.geo.w, self.geo.h),
+                                  (self._pos[0], self._pos[1], self.geo.w, self.geo.h),
                                   allow=allow and showing)
         self.apply_press(action)
 
@@ -787,7 +959,12 @@ class OverlayWindow(tk.Toplevel):
         px = g.px
         c.delete("all")
         self._cache.clear()
-        c.configure(width=g.w, height=g.h)
+        self.effects.forget()
+        # 分两层时内容窗口比面板高出一块透明区，给特效里的鸽子飞（点击穿透、看不见）；
+        # 用 scrollregion 把画布坐标往下挪，面板还是从 y=0 开始画，特效可以画到负的 y 上去
+        self._top = px(84) if self._backdrop is not None else 0
+        c.configure(width=g.w, height=g.h + self._top, scrollregion=(0, -self._top, g.w, g.h))
+        c.yview_moveto(0)
         static = ("static",)
         cover = ("static", "cover")
 
@@ -866,6 +1043,7 @@ class OverlayWindow(tk.Toplevel):
                                       text=_key_glyph(key), fill="#d3d1c7", tags=static,
                                       font=(_FONT_KEY, -px(16), "bold"))
                 self._caps.append((rect, digit, label))
+        self._cap_dy = [0] * len(self._caps)
 
         if not self._visible:
             c.itemconfigure("static", state="hidden")
@@ -903,6 +1081,42 @@ class OverlayWindow(tk.Toplevel):
             g = self.geo
             _round_rect(c, 2, 2, g.w - 3, g.h - 3, g.px(14), fill="", outline=OV["warn"],
                         width=2, tags=("dyn",))
+        c.tag_raise("fx")
+
+    # ------------------------------------------------------------------ #
+    # 命中特效
+    # ------------------------------------------------------------------ #
+
+    def effect_hit(self, key: str, now: float) -> None:
+        """按中了一个音：判定线上放特效，对应的键帽跳一下。"""
+        g = self.geo
+        self.effects.spawn_hit(now, g.line_x, g.lane_mid)
+        self._bounce[key] = now
+
+    def update_effects(self, now: float) -> bool:
+        """每帧调一次（画完这一帧之后），返回还有没有东西在动。"""
+        moving = self.effects.update(now)
+        keys = self._layout.keys if self._layout else ()
+        for index, (items, key) in enumerate(zip(self._caps, keys)):
+            started = self._bounce.get(key)
+            dy = 0
+            if started is not None:
+                u = (now - started) / 0.24
+                if u >= 1:
+                    del self._bounce[key]
+                else:
+                    dy = -int(round(self.geo.px(5) * math.sin(u * math.pi)))
+                    moving = True
+            if dy != self._cap_dy[index]:
+                for item in items:
+                    self.canvas.move(item, 0, dy - self._cap_dy[index])
+                self._cap_dy[index] = dy
+        return moving
+
+    def clear_effects(self) -> None:
+        self.effects.clear()
+        for key in list(self._bounce):
+            self._bounce[key] = -1e9          # 下一帧归位
 
     def _draw_header(self, frame: Frame) -> None:
         g = self.geo
@@ -1284,6 +1498,8 @@ class OverlayController:
         self._summary = ""
         self._verdict = None
         self._last_pos = 0.0
+        self._fx_pos: Optional[float] = None      # 自动演奏：上一帧的位置，用来找"这一帧走过判定线的音"
+        window.clear_effects()
         window.set_content(self.slots, layout)
         self._ensure_ticking()
         return True
@@ -1320,6 +1536,7 @@ class OverlayController:
         self._finished_at = None
         if self.window is None:
             return
+        self.window.clear_effects()
         if self.adjusting:
             self.window.set_content(self._preview_slots, self.app.layout)
         else:
@@ -1394,17 +1611,19 @@ class OverlayController:
             elif self.adjusting:
                 frame = self._preview_frame(now)
             window.render(frame)
+            effects_moving = window.update_effects(now) if frame is not None else False
             window.poll_long_press(allow=self._allow_long_press())
         except tk.TclError:
             return                              # 窗口已经关了
         except Exception as exc:                # noqa: BLE001 - 画面出错不能把提示整个停掉
+            effects_moving = False
             if not self._reported:
                 self._reported = True
                 self.app.log(f"悬浮提示窗出错：{type(exc).__name__}: {exc}")
         if frame is not None and now - self._last_topmost > self.TOPMOST_EVERY:
             self._last_topmost = now
             window.keep_on_top()
-        if self.mode is not None or self.adjusting or window.press_busy:
+        if self.mode is not None or self.adjusting or window.press_busy or effects_moving:
             self._tick_id = window.after(self.TICK_MS, self._tick)
 
     def _allow_long_press(self) -> bool:
@@ -1446,9 +1665,16 @@ class OverlayController:
                     verdict = judge.press(key, held_mouse, pos)
                     if verdict is not None:
                         self._show_verdict(verdict, now)
+                        if verdict.kind in Mark.HIT:
+                            self._hit_effect(verdict.index, now)
         if judge is not None and state == PlayState.PLAYING:
             for verdict in judge.sweep(pos):
                 self._show_verdict(verdict, now)
+
+        if self.mode == "auto" and state == PlayState.PLAYING:
+            self._auto_hits(pos, now)
+        elif state != PlayState.PLAYING:
+            self._fx_pos = None
 
         # 等待闸门：时钟停在下一个还没按对的音上
         if self.wait and judge is not None and state in (PlayState.PLAYING, PlayState.COUNTDOWN):
@@ -1468,6 +1694,24 @@ class OverlayController:
             verdict=self._verdict, verdict_age=(now - self._verdict_stamp) * 1000.0,
             stats=judge.status_text() if judge else "",
         )
+
+    def _hit_effect(self, index: int, now: float) -> None:
+        if self.window is None or not getattr(self.app.settings, "hit_effects", True):
+            return
+        if 0 <= index < len(self.slots):
+            self.window.effect_hit(self.slots[index].combo.key, now)
+
+    def _auto_hits(self, pos: float, now: float) -> None:
+        """自动演奏：这一帧里走过判定线的音都算按中了。跳得太远（拖了进度条）就不补放。"""
+        last = self._fx_pos
+        self._fx_pos = pos
+        if last is None or not (0 < pos - last < 400):
+            return
+        starts = self.window._starts if self.window is not None else []
+        first = bisect.bisect_right(starts, last)
+        stop = bisect.bisect_right(starts, pos)
+        for index in range(first, stop):
+            self._hit_effect(index, now)
 
     def _show_verdict(self, verdict: Verdict, now: float) -> None:
         self._verdict = verdict

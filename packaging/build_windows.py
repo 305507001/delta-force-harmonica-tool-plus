@@ -158,6 +158,8 @@ def build_exe(version: str) -> str:
         "--uac-admin",                     # 和「启动.bat」一样申请管理员权限
         "--version-file", version_file,
         "--paths", ROOT,
+        # 命中特效 / 彩蛋用的鸽子图片（Noto Emoji，连同许可证一起带上），打进包里，用户不用另外下载
+        "--add-data", os.path.join(ROOT, "gui", "assets") + os.pathsep + os.path.join("gui", "assets"),
         "--distpath", os.path.join(BUILD, "dist"),
         "--workpath", os.path.join(BUILD, "work"),
         "--specpath", BUILD,

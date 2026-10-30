@@ -338,6 +338,9 @@ class SettingsPage(tk.Frame):
                    command=on_change).pack(side=tk.LEFT, padx=(0, px(24)))
         self.var_overlay_keyboard = tk.BooleanVar(value=self.settings.overlay_keyboard)
         make_check(row, "显示下方的键盘提示行", self.var_overlay_keyboard,
+                   command=on_change).pack(side=tk.LEFT, padx=(0, px(24)))
+        self.var_hit_effects = tk.BooleanVar(value=self.settings.hit_effects)
+        make_check(row, "命中特效（按中时飞出鸽子和音符）", self.var_hit_effects,
                    command=on_change).pack(side=tk.LEFT)
 
         row = tk.Frame(body, bg=Palette["panel"])
@@ -407,6 +410,7 @@ class SettingsPage(tk.Frame):
         """把悬浮窗那几项收回 self.settings（不落盘）。"""
         self.settings.overlay_in_auto = bool(self.var_overlay_auto.get())
         self.settings.overlay_keyboard = bool(self.var_overlay_keyboard.get())
+        self.settings.hit_effects = bool(self.var_hit_effects.get())
         self.settings.guide_wait = bool(self.var_guide_wait.get())
         self.settings.guide_speed = _value_for(_GUIDE_SPEEDS, self.var_guide_speed.get(), 1.0)
         self.settings.overlay_lookahead = _value_for(_LOOKAHEADS, self.var_lookahead.get(), 3.0)
@@ -447,7 +451,7 @@ class SettingsPage(tk.Frame):
         # 滑块在程序改它的值时也会回调，所以要和已保存的设置比一下，真变了才提示
         fields = ("overlay_in_auto", "overlay_keyboard", "guide_wait", "guide_speed",
                   "overlay_lookahead", "overlay_scale", "overlay_alpha", "overlay_backdrop",
-                  "overlay_anchor")
+                  "overlay_anchor", "hit_effects")
         if any(getattr(self.settings, f) != getattr(self.app.settings, f) for f in fields):
             self.lbl_status.configure(text="悬浮窗设置已改动，记得点「保存设置」")
 
@@ -628,6 +632,7 @@ class SettingsPage(tk.Frame):
         self.var_bpm.set(self.settings.default_bpm)
         self.var_overlay_auto.set(self.settings.overlay_in_auto)
         self.var_overlay_keyboard.set(self.settings.overlay_keyboard)
+        self.var_hit_effects.set(self.settings.hit_effects)
         self.var_guide_wait.set(self.settings.guide_wait)
         self.var_guide_speed.set(_label_for(_GUIDE_SPEEDS, self.settings.guide_speed))
         self.var_lookahead.set(_label_for(_LOOKAHEADS, self.settings.overlay_lookahead))

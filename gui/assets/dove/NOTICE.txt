@@ -1,0 +1,8 @@
+鸽子图片来自 Noto Emoji（Google）
+https://github.com/googlefonts/noto-emoji
+
+原图：2D/png/512/emoji_u1f54a.png（🕊 DOVE OF PEACE）
+许可：Apache License 2.0（见同目录 LICENSE-Apache-2.0.txt）
+Copyright 2013 Google Inc.
+
+本程序做的改动：去掉四周空白、水平翻转（让鸽子头朝右）、缩成多种尺寸（dove_<宽度>.png）。

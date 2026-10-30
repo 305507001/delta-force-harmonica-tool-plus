@@ -155,6 +155,7 @@ class AppSettings:
     overlay_scale: float = 1.0          # 悬浮窗大小
     overlay_alpha: float = 0.95         # 悬浮窗上音符、键帽、文字的不透明度
     overlay_backdrop: float = 0.45      # 悬浮窗底板的透明度（0 = 不透明，0.9 = 几乎全透明）
+    hit_effects: bool = True            # 按中时放命中特效（鸽子 + 音符）
     overlay_keyboard: bool = True       # 显示下方的键盘提示行
     overlay_anchor: str = "upper"       # 悬浮窗位置预设：top / upper / lower / bottom / custom
     overlay_x: Optional[int] = None     # 拖动过的位置（overlay_anchor 为 custom 时用）
@@ -268,6 +269,7 @@ class AppSettings:
         settings.overlay_scale = clamp(data.get("overlay_scale", 1.0), 0.6, 2.0, 1.0)
         settings.overlay_alpha = clamp(data.get("overlay_alpha", 0.95), 0.3, 1.0, 0.95)
         settings.overlay_backdrop = clamp(data.get("overlay_backdrop", 0.45), 0.0, 0.9, 0.45)
+        settings.hit_effects = bool(data.get("hit_effects", True))
         if data.get("appearance") in APPEARANCES:
             settings.appearance = data["appearance"]
         settings.ui_size = clamp(data.get("ui_size", 1.0), 0.8, 1.6, 1.0)
@@ -341,7 +343,7 @@ class AppSettings:
                      "overlay_scale", "overlay_alpha", "overlay_keyboard",
                      "overlay_anchor", "overlay_x", "overlay_y", "legato",
                      "online_library_base", "overlay_backdrop", "appearance", "ui_size",
-                     "overlay_pos_scale", "hotkey_play", "hotkey_pause", "hotkey_stop"):
+                     "overlay_pos_scale", "hotkey_play", "hotkey_pause", "hotkey_stop", "hit_effects"):
             setattr(self, attr, getattr(fresh, attr))
         self.installed_presets = keep_presets
         self.preset_revision = keep_revision
