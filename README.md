@@ -309,7 +309,11 @@
 | 键 | 作用 |
 |---|---|
 | `F6` | 空闲时=开始；演奏中=暂停；暂停中=继续；倒计时中=取消（跟弹同样适用） |
+| `F7` | 只管暂停 / 继续（空闲、倒计时中按它没反应，不会误开始） |
 | `F8` | 立即停止，并松开所有按键 |
+
+三个键都能在 **设置 → 快捷键** 里改（F1~F12、Insert / Delete / Home / End / PageUp / PageDown、小键盘数字），
+不能和音键重复。
 
 ---
 
@@ -493,8 +497,8 @@ python tools/make_demos.py            # 重新生成示例 MIDI
 说明游戏的按键读取比你的机器帧率还快，把节奏档调到「稳健」。
 另外确认游戏内键位没被你自己改过——改过的话到设置页把程序里的键位也改成一致的。
 
-**Q：快捷键 F6/F8 没反应**
-别的程序可能占用了这些键。可以关掉占用的程序，或者直接在界面上点按钮。
+**Q：快捷键 F6/F7/F8 没反应**
+别的程序可能占用了这些键。可以到设置 → 快捷键里换成别的键，或者直接在界面上点按钮。
 
 **Q：试听没声音**
 系统里没有可用的 MIDI 输出设备。不影响正常演奏，只是听不到预览。
@@ -615,6 +619,9 @@ python packaging\build_windows.py
 如果它帮你搞懂了什么（哪怕只是一点点），欢迎在 GitHub 上点一个 ⭐ **[Star](https://github.com/2776525655/delta-force-harmonica-tool)**。
 
 **点 Star 是完全没有风险的** —— 它只是给作者的一个鼓励，不会触发任何游戏行为 :)
+
+命中特效和彩蛋里的鸽子图片来自 Google 的 [Noto Emoji](https://github.com/googlefonts/noto-emoji)
+（Apache License 2.0，水平翻转并缩放过，许可文件放在 `gui/assets/dove/`），随程序打包，不用另外下载。
 
 在线曲库的曲谱来自 [Dr-hydra / Delta Force Harmonica](https://github.com/Dr-hydra/Delta-Force-Harmonica)
 的公开曲库，感谢曲库作者和每一位上传曲谱的玩家。
