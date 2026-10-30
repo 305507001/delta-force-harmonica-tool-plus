@@ -65,6 +65,7 @@ _MOD_LABEL = {None: "不使用", "left": "鼠标左键", "right": "鼠标右键"
 _GUIDE_SPEEDS = [("0.5×（很慢）", 0.5), ("0.6×", 0.6), ("0.75×", 0.75), ("0.9×", 0.9), ("1.0×（原速）", 1.0)]
 _LOOKAHEADS = [(f"{n} 秒", float(n)) for n in (2, 3, 4, 5, 6)]
 _SCALES = [("小", 0.8), ("中", 1.0), ("大", 1.25), ("特大", 1.5)]
+_FPS = [("60 帧（流畅）", 60), ("30 帧（更省电脑）", 30)]
 _ANCHORS = [("屏幕上方", "top"), ("中间偏上（默认）", "upper"), ("中间偏下", "lower"),
             ("屏幕下方", "bottom"), ("拖动过的位置", "custom")]
 
@@ -348,6 +349,11 @@ class SettingsPage(tk.Frame):
         self.var_easter_egg = tk.BooleanVar(value=self.settings.easter_egg)
         make_check(row, "彩蛋（偶尔冒出一只吐槽的鸽子）", self.var_easter_egg,
                    command=on_change).pack(side=tk.LEFT)
+        make_label(row, "画面帧率").pack(side=tk.LEFT, padx=(px(24), px(8)))
+        self.var_fps = tk.StringVar(value=_label_for(_FPS, self.settings.overlay_fps))
+        combo = make_combobox(row, [t for t, _ in _FPS], self.var_fps, width=14)
+        combo.pack(side=tk.LEFT)
+        combo.bind("<<ComboboxSelected>>", lambda e: on_change())
 
         row = tk.Frame(body, bg=Palette["panel"])
         row.pack(fill=tk.X, pady=(px(8), 0))
@@ -418,6 +424,7 @@ class SettingsPage(tk.Frame):
         self.settings.overlay_keyboard = bool(self.var_overlay_keyboard.get())
         self.settings.hit_effects = bool(self.var_hit_effects.get())
         self.settings.easter_egg = bool(self.var_easter_egg.get())
+        self.settings.overlay_fps = _value_for(_FPS, self.var_fps.get(), 60)
         self.settings.guide_wait = bool(self.var_guide_wait.get())
         self.settings.guide_speed = _value_for(_GUIDE_SPEEDS, self.var_guide_speed.get(), 1.0)
         self.settings.overlay_lookahead = _value_for(_LOOKAHEADS, self.var_lookahead.get(), 3.0)
@@ -458,7 +465,7 @@ class SettingsPage(tk.Frame):
         # 滑块在程序改它的值时也会回调，所以要和已保存的设置比一下，真变了才提示
         fields = ("overlay_in_auto", "overlay_keyboard", "guide_wait", "guide_speed",
                   "overlay_lookahead", "overlay_scale", "overlay_alpha", "overlay_backdrop",
-                  "overlay_anchor", "hit_effects", "easter_egg")
+                  "overlay_anchor", "hit_effects", "easter_egg", "overlay_fps")
         if any(getattr(self.settings, f) != getattr(self.app.settings, f) for f in fields):
             self.lbl_status.configure(text="悬浮窗设置已改动，记得点「保存设置」")
 
@@ -641,6 +648,7 @@ class SettingsPage(tk.Frame):
         self.var_overlay_keyboard.set(self.settings.overlay_keyboard)
         self.var_hit_effects.set(self.settings.hit_effects)
         self.var_easter_egg.set(self.settings.easter_egg)
+        self.var_fps.set(_label_for(_FPS, self.settings.overlay_fps))
         self.var_guide_wait.set(self.settings.guide_wait)
         self.var_guide_speed.set(_label_for(_GUIDE_SPEEDS, self.settings.guide_speed))
         self.var_lookahead.set(_label_for(_LOOKAHEADS, self.settings.overlay_lookahead))

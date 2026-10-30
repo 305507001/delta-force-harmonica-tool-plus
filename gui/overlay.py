@@ -690,6 +690,8 @@ class OverlayWindow(tk.Toplevel):
         self._top = 0                      # 内容窗口上方给特效留的透明区高度
         self._bounce: Dict[str, float] = {}     # 键帽跳一下：键 -> 开始时间
         self._egg: Optional[float] = None       # 彩蛋开始的时间（没在放就是 None）
+        self._note_items: Dict[int, Dict[str, int]] = {}   # 音符序号 -> 它的几个图形
+        self.generation = 0                     # 每重建一次画布 / 换一次曲子加 1
         self._cap_dy: List[int] = []
         # 进程开了高 DPI 感知（见 theme.enable_dpi_awareness），Tk 的像素就是物理像素，
         # 按 96 DPI 设计的尺寸要跟着屏幕缩放放大；不跟主界面的「界面大小」走，悬浮窗有自己的大小设置
@@ -927,6 +929,8 @@ class OverlayWindow(tk.Toplevel):
     def set_content(self, slots: Sequence[Slot], layout: Layout) -> None:
         """换一首曲子。"""
         self._slots = list(slots)
+        self.generation += 1
+        self._reset_notes()
         self._starts = [slot.start for slot in self._slots]
         self._max_hold = max((slot.hold for slot in self._slots), default=0.0)
         if layout is not self._layout:
@@ -962,8 +966,10 @@ class OverlayWindow(tk.Toplevel):
         px = g.px
         c.delete("all")
         self._cache.clear()
+        self.generation += 1                       # 画布重建了，控制器下一帧必须整个重画
         self.effects.forget()
         self._egg = None                           # 彩蛋的图形也跟着清掉了，用到时重建
+        self._note_items = {}
         # 分两层时内容窗口比面板高出一块透明区，给特效里的鸽子飞（点击穿透、看不见）；
         # 用 scrollregion 把画布坐标往下挪，面板还是从 y=0 开始画，特效可以画到负的 y 上去
         self._top = px(84) if self._backdrop is not None else 0
@@ -1069,6 +1075,7 @@ class OverlayWindow(tk.Toplevel):
         c.delete("dyn")
         if frame is None:
             self._show(False)
+            self._reset_notes()
             return
         self._show(True)
 
@@ -1262,7 +1269,12 @@ class OverlayWindow(tk.Toplevel):
                                              outline="", tags=("dyn",))
 
     def _draw_notes(self, frame: Frame) -> None:
+        """
+        画音符。每个音的图形在它刚走进画面时建一次，之后每帧只挪位置、改颜色，
+        走出画面就删掉——早先每帧把所有音符删光再重画，Python 这边的开销大一半。
+        """
         if not self._slots:
+            self._reset_notes()
             return
         c = self.canvas
         g = self.geo
@@ -1275,6 +1287,7 @@ class OverlayWindow(tk.Toplevel):
         t_right = pos + (g.lane_right - g.line_x) / speed
         first = bisect.bisect_left(self._starts, t_left - self._max_hold)
         marks = frame.marks
+        seen = set()
 
         for index in range(first, len(self._slots)):
             slot = self._slots[index]
@@ -1309,36 +1322,83 @@ class OverlayWindow(tk.Toplevel):
             cx = g.line_x + (slot.start - pos) * speed
             if cx + half > g.lane_right:
                 continue                       # 头还没完全走进轨道，整个先不画
+            seen.add(index)
+            items = self._note_items.setdefault(index, {})
+            used = set()
             # 长音的头早已走进左边的鼠标区时，尾巴从鼠标区边上画起，别伸到底板外面去
             tail_start = max(cx, g.zone_right - (0 if self._backdrop is not None else px(12)))
             tail_end = min(cx + slot.hold * speed, g.lane_right - px(4))
             if tail_end > tail_start + 2:
-                _round_rect(c, tail_start, cy - g.tail / 2, tail_end, cy + g.tail / 2, g.tail / 2,
-                            fill=tail_fill, outline="", tags=("dyn",))
-            if cx + half <= g.zone_right:
-                continue                       # 头整个在鼠标区底下，反正被盖住，不画
-            if self._backdrop is not None and cx - half < g.zone_right:
-                continue                       # 分两层时没东西盖：头一碰到鼠标区就不画了
-            _round_rect(c, cx - half, cy - half, cx + half, cy + half, px(9), fill=head_fill,
-                        outline=outline, width=max(1, px(2)) if outline else 0, tags=("dyn",))
-            glyph = _key_glyph(slot.combo.key)
-            if small:
-                c.create_text(cx, cy - px(5), text=glyph, fill=text_fill, tags=("dyn",),
-                              font=(_FONT_KEY, -px(20), "bold"))
-                c.create_text(cx, cy + px(13), text=small, fill=text_fill, tags=("dyn",),
-                              font=(_FONT_UI, -px(10), "bold"))
-            else:
-                c.create_text(cx, cy, text=glyph, fill=text_fill, tags=("dyn",),
-                              font=(_FONT_KEY, -px(22), "bold"))
-            if sharp:
-                sx, sy, r = cx + half - px(5), cy - half + px(5), px(8)
-                sharp_dark, sharp_bright = GROUP_COLORS["sharp"]
-                fill = PAST_BG if (passed and mark not in Mark.HIT) else sharp_bright
-                c.create_oval(sx - r, sy - r, sx + r, sy + r, fill=fill, outline=PANEL_BG,
-                              width=max(1, px(1.5)), tags=("dyn",))
-                # 用 ASCII 的 "#"：音乐符号 ♯ 在不少系统字体里没有字形
-                c.create_text(sx, sy, text="#", fill=DARK_TEXT, tags=("dyn",),
-                              font=(_FONT_KEY, -px(11), "bold"))
+                item = self._note_part(items, "tail", lambda: c.create_polygon(
+                    0, 0, 0, 0, 0, 0, smooth=True, outline="", tags=("note",)))
+                self._round_coords(item, tail_start, cy - g.tail / 2, tail_end, cy + g.tail / 2, g.tail / 2)
+                self._set(item, fill=tail_fill, state="normal")
+                used.add("tail")
+            head_hidden = cx + half <= g.zone_right or (self._backdrop is not None and cx - half < g.zone_right)
+            # 头整个在鼠标区底下（一个窗口时被盖住），或者分两层时头碰到了鼠标区（没东西盖，直接不画）
+            if not head_hidden:
+                item = self._note_part(items, "head", lambda: c.create_polygon(
+                    0, 0, 0, 0, 0, 0, smooth=True, tags=("note",)))
+                self._round_coords(item, cx - half, cy - half, cx + half, cy + half, px(9))
+                self._set(item, fill=head_fill, outline=outline or "",
+                          width=max(1, px(2)) if outline else 0, state="normal")
+                used.add("head")
+                glyph = _key_glyph(slot.combo.key)
+                key_item = self._note_part(items, "key", lambda: c.create_text(0, 0, tags=("note",)))
+                if small:
+                    c.coords(key_item, cx, cy - px(5))
+                    self._set(key_item, text=glyph, fill=text_fill, font=(_FONT_KEY, -px(20), "bold"),
+                              state="normal")
+                    item = self._note_part(items, "small", lambda: c.create_text(0, 0, tags=("note",)))
+                    c.coords(item, cx, cy + px(13))
+                    self._set(item, text=small, fill=text_fill, font=(_FONT_UI, -px(10), "bold"),
+                              state="normal")
+                    used.add("small")
+                else:
+                    c.coords(key_item, cx, cy)
+                    self._set(key_item, text=glyph, fill=text_fill, font=(_FONT_KEY, -px(22), "bold"),
+                              state="normal")
+                used.add("key")
+                if sharp:
+                    sx, sy, r = cx + half - px(5), cy - half + px(5), px(8)
+                    _sharp_dark, sharp_bright = GROUP_COLORS["sharp"]
+                    fill = PAST_BG if (passed and mark not in Mark.HIT) else sharp_bright
+                    item = self._note_part(items, "sharp", lambda: c.create_oval(
+                        0, 0, 1, 1, outline=PANEL_BG, width=max(1, px(1.5)), tags=("note",)))
+                    c.coords(item, sx - r, sy - r, sx + r, sy + r)
+                    self._set(item, fill=fill, state="normal")
+                    # 用 ASCII 的 "#"：音乐符号 ♯ 在不少系统字体里没有字形
+                    item = self._note_part(items, "sharp_text", lambda: c.create_text(
+                        0, 0, text="#", fill=DARK_TEXT, font=(_FONT_KEY, -px(11), "bold"), tags=("note",)))
+                    c.coords(item, sx, sy)
+                    self._set(item, state="normal")
+                    used.update(("sharp", "sharp_text"))
+            for kind, item in items.items():
+                if kind not in used:
+                    self._set(item, state="hidden")
+        # 走出画面的音：图形删掉（一首曲子同时在画面上的只有十来个音）
+        for index in [i for i in self._note_items if i not in seen]:
+            for item in self._note_items.pop(index).values():
+                c.delete(item)
+                self._cache.pop(item, None)
+        c.tag_raise("note")
+
+    def _note_part(self, items: Dict[str, int], kind: str, create: Callable[[], int]) -> int:
+        item = items.get(kind)
+        if item is None:
+            item = items[kind] = create()
+        return item
+
+    def _round_coords(self, item: int, x1: float, y1: float, x2: float, y2: float, r: float) -> None:
+        r = max(0.0, min(r, (x2 - x1) / 2, (y2 - y1) / 2))
+        self.canvas.coords(item, *_rounded_points(x1, y1, x2, y2, r, r, r, r))
+
+    def _reset_notes(self) -> None:
+        self.canvas.delete("note")
+        for items in self._note_items.values():
+            for item in items.values():
+                self._cache.pop(item, None)
+        self._note_items = {}
 
     def _draw_line(self, frame: Frame) -> None:
         c = self.canvas
@@ -1527,6 +1587,9 @@ class OverlayController:
         self.failed = False
         self.egg: Optional[EggTrigger] = None
         self._fx_pos: Optional[float] = None
+        self.fps = 60
+        self._drawn_at = -1.0
+        self._drawn: object = ()                 # 上一次画出来的那一帧的"指纹"
 
     # ------------------------------------------------------------------ #
     # 窗口
@@ -1557,6 +1620,8 @@ class OverlayController:
         if self.window is None:
             return
         self.window.pause_hint = hotkey_label(getattr(settings, "hotkey_pause", "f7"))
+        self.fps = 30 if getattr(settings, "overlay_fps", 60) == 30 else 60
+        self._drawn = ()                         # 暂停提示等可能变了，下一帧重画
         x, y = settings.overlay_x, settings.overlay_y
         if x is not None and y is not None:
             # 拖过的位置是按当时的屏幕缩放存的；老版本不感知 DPI，存的是缩放前的坐标
@@ -1719,8 +1784,7 @@ class OverlayController:
                 frame = self._session_frame(now)
             elif self.adjusting:
                 frame = self._preview_frame(now)
-            window.render(frame)
-            effects_moving = window.update_effects(now) if frame is not None else False
+            effects_moving = self._draw(window, frame, now)
             window.poll_long_press(allow=self._allow_long_press())
         except tk.TclError:
             return                              # 窗口已经关了
@@ -1734,6 +1798,37 @@ class OverlayController:
             window.keep_on_top()
         if self.mode is not None or self.adjusting or window.press_busy or effects_moving:
             self._tick_id = window.after(self.TICK_MS, self._tick)
+
+    def _draw(self, window: "OverlayWindow", frame: Optional[Frame], now: float) -> bool:
+        """
+        把这一帧交给窗口去画，返回特效还在不在动。
+
+        读按键、判定每 15 毫秒都要做，画面却不用：选了 30 帧就隔一次画一次；
+        暂停、结束总结、等人按之外的静止画面和上一帧一模一样时，干脆不画。
+        """
+        if now - self._drawn_at < 0.8 / self.fps:
+            return True                            # 还没到下一帧，先别停表
+        self._drawn_at = now
+        signature = self._signature(window, frame)
+        if signature != self._drawn:
+            self._drawn = signature
+            window.render(frame)
+        elif frame is None:
+            return False
+        return window.update_effects(now) if frame is not None else False
+
+    def _signature(self, window: "OverlayWindow", frame: Optional[Frame]) -> object:
+        """一帧的"指纹"：画出来的东西不变，指纹就不变（位置精确到像素）。"""
+        if frame is None:
+            return None
+        age = frame.verdict_age
+        fade = None if age > 900 else (0 if age < 350 else int((age - 350) / 30))
+        return (window.generation, frame.mode, frame.title, frame.state,
+                int(frame.position * window._pps), int(frame.total), int(frame.countdown + 0.999),
+                frame.wait, frame.waiting, int(time.perf_counter() * 60) if frame.waiting else 0,
+                frame.focus, frame.next_focus, tuple(frame.marks), tuple(frame.held_keys),
+                tuple(frame.held_mouse), frame.sensing, id(frame.verdict), fade, frame.stats,
+                frame.message, frame.submessage, frame.unlocked, frame.sore)
 
     def _allow_long_press(self) -> bool:
         """自动演奏正按着左键（降八度）时，左键是程序按的，不算玩家长按。"""

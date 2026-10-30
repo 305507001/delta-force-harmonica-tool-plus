@@ -157,6 +157,7 @@ class AppSettings:
     overlay_backdrop: float = 0.45      # 悬浮窗底板的透明度（0 = 不透明，0.9 = 几乎全透明）
     hit_effects: bool = True            # 按中时放命中特效（鸽子 + 音符）
     easter_egg: bool = True             # 彩蛋：偶尔冒出一只吐槽的鸽子
+    overlay_fps: int = 60               # 悬浮窗每秒画几帧（60 / 30；30 更省电脑，读按键的频率不变）
     overlay_keyboard: bool = True       # 显示下方的键盘提示行
     overlay_anchor: str = "upper"       # 悬浮窗位置预设：top / upper / lower / bottom / custom
     overlay_x: Optional[int] = None     # 拖动过的位置（overlay_anchor 为 custom 时用）
@@ -272,6 +273,7 @@ class AppSettings:
         settings.overlay_backdrop = clamp(data.get("overlay_backdrop", 0.45), 0.0, 0.9, 0.45)
         settings.hit_effects = bool(data.get("hit_effects", True))
         settings.easter_egg = bool(data.get("easter_egg", True))
+        settings.overlay_fps = 30 if data.get("overlay_fps") == 30 else 60
         if data.get("appearance") in APPEARANCES:
             settings.appearance = data["appearance"]
         settings.ui_size = clamp(data.get("ui_size", 1.0), 0.8, 1.6, 1.0)
@@ -346,7 +348,7 @@ class AppSettings:
                      "overlay_anchor", "overlay_x", "overlay_y", "legato",
                      "online_library_base", "overlay_backdrop", "appearance", "ui_size",
                      "overlay_pos_scale", "hotkey_play", "hotkey_pause", "hotkey_stop", "hit_effects",
-                     "easter_egg"):
+                     "easter_egg", "overlay_fps"):
             setattr(self, attr, getattr(fresh, attr))
         self.installed_presets = keep_presets
         self.preset_revision = keep_revision

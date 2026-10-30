@@ -54,6 +54,12 @@ jobs:
         timeout-minutes: 5
         run: python tools/gui_smoke.py
 
+      - name: 悬浮窗测速
+        # 只是看看 Windows 上悬浮窗吃多少 CPU，不拦打包
+        continue-on-error: true
+        timeout-minutes: 3
+        run: python tools/perf_overlay.py 4
+
       - name: 界面截图（浅色 / 深色）
         # 只是给改界面的人看效果，不拦打包
         continue-on-error: true
