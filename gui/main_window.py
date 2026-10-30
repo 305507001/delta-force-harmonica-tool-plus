@@ -24,10 +24,11 @@ from __future__ import annotations
 
 import ctypes
 import os
+import queue
 import sys
 import time
 import tkinter as tk
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from kouqin.engine import NullSender, PlayState, Player, compile_notes
 from kouqin.hotkeys import GlobalHotkeys
@@ -104,6 +105,12 @@ class MainWindow(tk.Tk):
 
         self._install_presets_if_needed()
         self._build()
+        # 别的线程（播放、热键、联网）交给界面线程的活儿都走这个队列，界面线程每 10ms 取一次。
+        # 不能直接在别的线程里调 self.after(...)：Tk 会让那个线程停下来等界面线程处理完，
+        # 界面线程这时要是正在等它（比如停止演奏时等播放线程退出），两边就互相卡住。
+        self._ui_calls: "queue.SimpleQueue" = queue.SimpleQueue()
+        self._pump_job: Optional[str] = None
+        self._pump_ui()
         self._bind_player()
         self._bind_hotkeys()
 
@@ -281,14 +288,38 @@ class MainWindow(tk.Tk):
     # 播放
     # ================================================================== #
 
+    def call_soon(self, callback: Callable, *args) -> None:
+        """让界面线程尽快执行 ``callback(*args)``。任何线程都能调，不会卡住调用的线程。"""
+        self._ui_calls.put((callback, args))
+
+    def _pump_ui(self) -> None:
+        while True:
+            try:
+                callback, args = self._ui_calls.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                callback(*args)
+            except tk.TclError:
+                pass                                   # 控件已经销毁（比如正在换外观）
+        try:
+            self._pump_job = self.after(10, self._pump_ui)
+        except tk.TclError:
+            self._pump_job = None
+
     def _bind_player(self) -> None:
-        self.player.on_progress = lambda ms, i, n: self.after(0, self._on_progress, ms, i, n)
-        self.player.on_state = lambda s: self.after(0, self._on_state, s)
-        self.player.on_finish = lambda: self.after(0, self._on_finish)
+        self.player.on_progress = lambda ms, i, n: self.call_soon(self._on_progress, ms, i, n)
+        self.player.on_state = lambda s: self.call_soon(self._on_state, s)
+        self.player.on_finish = lambda: self.call_soon(self._on_finish)
+
+    def _hotkey_stop(self) -> None:
+        """F8（在热键线程里跑）：先当场停掉播放、松开所有按键，界面的事再交给界面线程。"""
+        self.player.stop()
+        self.call_soon(self.stop)
 
     def _bind_hotkeys(self) -> None:
-        self.hotkeys.bind("f6", lambda: self.after(0, self.toggle_play))
-        self.hotkeys.bind("f8", lambda: self.after(0, self.stop))
+        self.hotkeys.bind("f6", lambda: self.call_soon(self.toggle_play))
+        self.hotkeys.bind("f8", self._hotkey_stop)
         self.hotkeys.start()
 
     def play_tune(self, tune: Tune, mode: str = MODE_AUTO) -> None:
@@ -658,6 +689,12 @@ class MainWindow(tk.Tk):
         self.on_close()
 
     def on_close(self) -> None:
+        if self._pump_job is not None:
+            try:
+                self.after_cancel(self._pump_job)
+            except tk.TclError:
+                pass
+            self._pump_job = None
         try:
             self.player.stop()
             self.overlay.close()

@@ -158,6 +158,11 @@ class OnlinePanel(tk.Frame):
         threading.Thread(target=work, name="kouqin-online-catalog", daemon=True).start()
 
     def _post(self, callback: Callable[[], None]) -> None:
+        """后台线程把结果交回界面线程（不在后台线程里直接碰 Tk，见 MainWindow.call_soon）。"""
+        call_soon = getattr(self.app, "call_soon", None)
+        if call_soon is not None:
+            call_soon(callback)
+            return
         try:
             self.after(0, callback)
         except (tk.TclError, RuntimeError):

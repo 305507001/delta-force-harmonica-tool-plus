@@ -46,6 +46,7 @@ class DrySender:
     def __init__(self) -> None:
         self.count = 0
         self.held = set()
+        self.releases = []          # 每次「全部松手」的时刻（perf_counter）
 
     def key_down(self, key):
         self.count += 1
@@ -68,6 +69,7 @@ class DrySender:
         return True
 
     def release_all(self):
+        self.releases.append(time.perf_counter())
         self.held.clear()
 
     class _Stats:
@@ -116,6 +118,9 @@ class Smoke:
             self.step_guide_play,
             self.step_guide_finish,
             self.step_auto_after_guide,
+            self.step_stop_hotkey,
+            self.step_stop_hotkey_check,
+            self.step_stop_button,
             self.step_seek_bar,
             self.step_seek_finish,
             self.step_overlay_adjust,
@@ -286,6 +291,45 @@ class Smoke:
                  and judge.missed == judge.total < len(judge.slots),
                  "跳转后继续跟弹到结束，只统计没跳过的音", judge.summary() if judge else "")
         self.say(self.sender.count == self.injected_before_seek, "跟弹拖进度条全程没发按键")
+
+    def _start_long_auto(self) -> None:
+        """放一首够长的曲子（原速），给停止测试用。"""
+        self.window.settings.speed = 1.0
+        self.window.play_tune_by_name("送别", "auto")
+        deadline = time.time() + 2
+        while time.time() < deadline:
+            self.window.update()
+            time.sleep(0.01)
+
+    def step_stop_hotkey(self) -> None:
+        # 模拟在游戏里按 F8：热键线程调停止，界面线程这时什么都不管
+        import threading
+        self._start_long_auto()
+        self.say(self.window.player.state == "playing", "停止测试：开始演奏")
+        self._f8_at = time.perf_counter()
+        hotkey = threading.Thread(target=self.window._hotkey_stop)
+        hotkey.start()
+        hotkey.join(2.0)
+        self._f8_returned = (time.perf_counter() - self._f8_at) * 1000
+
+    def step_stop_hotkey_check(self) -> None:
+        released = [t for t in self.sender.releases if t >= self._f8_at]
+        delay = (released[0] - self._f8_at) * 1000 if released else -1
+        self.say(released and delay < 50 and not self.sender.held,
+                 "按 F8 后所有按键立刻松开", f"{delay:.0f} ms 后松开，热键线程 {self._f8_returned:.0f} ms 返回")
+        self.say(self.window.player.state == "idle" and "已停止" in self.window.lbl_status.cget("text"),
+                 "F8 后界面显示已停止", self.window.lbl_status.cget("text"))
+
+    def step_stop_button(self) -> None:
+        # 在界面上点「停止」：主线程里调，不能被播放线程拖住
+        self._start_long_auto()
+        began = time.perf_counter()
+        self.window.stop()
+        took = (time.perf_counter() - began) * 1000
+        released = [t for t in self.sender.releases if t >= began]
+        self.say(released and (released[0] - began) * 1000 < 50 and took < 150,
+                 "点停止立刻松开、界面不卡", f"停止用时 {took:.0f} ms")
+        self.window.settings.speed = 4.0
 
     def step_overlay_adjust(self) -> None:
         overlay = self.window.overlay

@@ -436,6 +436,7 @@ class Player:
     def __init__(self, sender: Optional[Sender] = None) -> None:
         self.sender = sender or Sender()
         self._thread: Optional[threading.Thread] = None
+        self._session = 0                  # 第几场演奏；stop() / play() 都会 +1，旧线程据此知道自己作废了
         self._events: List[Event] = []
         self._times: List[float] = []
         self._index = 0
@@ -601,7 +602,10 @@ class Player:
         else:
             self._start_clock()
             self._set_state(PlayState.PLAYING)
-        self._thread = threading.Thread(target=self._run, name="kouqin-player", daemon=True)
+        with self._lock:
+            self._session += 1
+            session = self._session
+        self._thread = threading.Thread(target=self._run, args=(session,), name="kouqin-player", daemon=True)
         self._thread.start()
 
     def _start_clock(self) -> None:
@@ -645,18 +649,27 @@ class Player:
             self.resume()
 
     def stop(self) -> None:
-        """中止演奏并释放所有按键。"""
+        """
+        中止演奏并释放所有按键。哪个线程调都行（F8 热键线程直接调它）。
+
+        **先松手、再等线程**：按键要在按下 F8 的那一刻就松开。
+        早先是先等播放线程退出（最多 1 秒）再松手，而播放线程正卡在"把进度交给界面线程"那一步、
+        界面线程又在这里等它——两边互相等到超时，表现就是按了 F8 要过一两秒才停、最后一个音一直响。
+        现在松完手只稍等一下；线程万一一时出不来也不死等，它出来后看到场次变了会自己退，不会再碰按键。
+        """
         self._abort.set()
         self._resume.set()
-        thread = self._thread
-        if thread and thread.is_alive() and thread is not threading.current_thread():
-            thread.join(timeout=1.0)
         with self._lock:
+            self._session += 1             # 正在跑的那个线程从此作废
             self._release_held()
             self._index = 0
             self._pending_ms = 0.0
             self._gate_ms = None
             self._epoch += 1
+        thread = self._thread
+        if thread and thread.is_alive() and thread is not threading.current_thread():
+            thread.join(timeout=0.2)
+        if self._state != PlayState.IDLE:          # 已经停了就别再通知一遍（F8 和界面会各调一次）
             self._set_state(PlayState.IDLE)
 
     def seek(self, ms: float) -> None:
@@ -695,16 +708,18 @@ class Player:
     # 线程主体
     # ------------------------------------------------------------------ #
 
-    def _run(self) -> None:
+    def _run(self, session: int) -> None:
         _fine_timer(True)
+
+        def current() -> bool:
+            return session == self._session and not self._abort.is_set()
+
         try:
             # 倒计时阶段：让人有时间切回游戏（状态已经由 play() 切成 COUNTDOWN）
             if self._state == PlayState.COUNTDOWN:
                 while time.perf_counter() < self._countdown_deadline:
-                    if self._abort.is_set():
-                        self._countdown_deadline = 0.0
-                        self._set_state(PlayState.IDLE)
-                        return
+                    if not current():
+                        return                     # stop() 已经把状态切回空闲了
                     time.sleep(0.02)
                 self._countdown_deadline = 0.0
                 # 先定基准再切状态：别人一看到 PLAYING 就会来读 position
@@ -714,7 +729,7 @@ class Player:
 
             while True:
                 with self._lock:
-                    if self._abort.is_set() or self._index >= len(self._events):
+                    if not current() or self._index >= len(self._events):
                         break
                     paused = not self._resume.is_set()
                     if not paused:
@@ -734,7 +749,7 @@ class Player:
                 # 等到该事件的时间点
                 target = event.t
                 while True:
-                    if self._abort.is_set() or not self._resume.is_set() or self._epoch != epoch:
+                    if not current() or not self._resume.is_set() or self._epoch != epoch:
                         break
                     remain = (target - self._clock_ms()) / 1000.0
                     if remain <= 0:
@@ -746,7 +761,7 @@ class Player:
                     # 剩余不足 2ms，直接忙等，保证精度
 
                 with self._lock:
-                    if self._abort.is_set() or not self._resume.is_set() or self._epoch != epoch:
+                    if not current() or not self._resume.is_set() or self._epoch != epoch:
                         continue
                     self._emit(event)
                     self._index += 1
@@ -761,15 +776,16 @@ class Player:
                     except Exception:
                         pass
 
-            if self._abort.is_set():
-                self._set_state(PlayState.IDLE)
-            else:
+            if current():
                 self._set_state(PlayState.DONE)
+            # 被 stop() 停掉的：stop() 已经松过手、切过状态，这里什么都别碰（可能已经开始下一首了）
         finally:
             with self._lock:
-                self._release_held()
+                mine = session == self._session
+                if mine:
+                    self._release_held()
             _fine_timer(False)
-            if self._state == PlayState.DONE and self.on_finish:
+            if mine and self._state == PlayState.DONE and self.on_finish:
                 try:
                     self.on_finish()
                 except Exception:

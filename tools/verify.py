@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 import time
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -43,6 +44,7 @@ class DrySender:
         self.overlaps = 0           # 按下新键时旧键还没松开的次数
         self.held_keys = set()
         self.held_mouse = set()
+        self.releases = []          # 每次「全部松手」的时刻（相对秒）
         self._t0 = time.perf_counter()
 
     def _stamp(self) -> float:
@@ -73,6 +75,7 @@ class DrySender:
         return True
 
     def release_all(self) -> None:
+        self.releases.append(self._stamp())
         self.held_keys.clear()
         self.held_mouse.clear()
 
@@ -404,6 +407,50 @@ def test_legato_playback() -> None:
     report("相邻换键的音之间没有空隙", gapless > 0, f"{gapless} 处无缝衔接")
 
 
+def test_stop_is_instant() -> None:
+    """
+    按 F8 要当场停：就算界面线程忙不过来、播放线程的回调交不出去，停止也必须立刻松开所有按键。
+
+    早先 stop() 先等播放线程退出（最多 1 秒）再松手，而播放线程正卡在"把进度交给界面线程"那一步、
+    界面线程又在 stop() 里等它——两边互相等到超时，按了 F8 要过一两秒才停、最后一个音一直响。
+    这里让进度回调卡住来复现。
+    """
+    print("\n[12] 停止要快")
+    layout = Layout()
+    notes = parse_jianpu("T=240\n" + " ".join(["1 2 3 4 5 6 7 1'"] * 2)).notes
+    events, _ = compile_notes(notes, layout, TIMING_PRESETS["normal"], speed=2.0)
+    sender = DrySender()
+    player = Player(sender)
+    player.load(events)
+    ui_free = threading.Event()
+    player.on_progress = lambda *_: ui_free.wait(3.0)      # 界面线程正忙，回调交不出去
+    player.play(countdown_ms=0)
+    time.sleep(0.3)
+    t0 = sender._stamp()
+    began = time.perf_counter()
+    player.stop()
+    took = (time.perf_counter() - began) * 1000
+    released = [t for t in sender.releases if t >= t0]
+    first = (released[0] - t0) * 1000 if released else -1
+    report("按停止后立刻松开所有按键", released and first < 30 and not sender.held_keys and not sender.held_mouse,
+           f"{first:.0f} ms 后松开")
+    report("停止不会把界面卡住", took < 400, f"stop() 用时 {took:.0f} ms")
+
+    # 马上开始下一首，再放开卡住的旧线程：旧线程不能再按键，也不能把新一首正按着的键松掉
+    player.on_progress = None
+    t1 = sender._stamp()
+    player.play(countdown_ms=0)
+    ui_free.set()
+    _wait_done(player)
+    end = sender._stamp()
+    between = [k for t, kind, k in sender.timeline if kind == "kd" and t0 < t < t1]
+    new_presses = [k for t, kind, k in sender.timeline if kind == "kd" and t >= t1]
+    stray = [t for t in sender.releases if t1 <= t < end - 0.05]
+    report("停止后旧线程没再按键", not between, f"多按了 {len(between)} 个")
+    report("下一首照常演完，没被旧线程插手", len(new_presses) == len(notes) and not stray,
+           f"按了 {len(new_presses)}/{len(notes)} 个，中途被松手 {len(stray)} 次")
+
+
 def main() -> int:
     print("=" * 62)
     print("《口琴工坊》端到端验证（使用假注入器，不会真的发按键）")
@@ -420,6 +467,7 @@ def main() -> int:
     test_wait_gate()
     test_slow_thread_start()
     test_legato_playback()
+    test_stop_is_instant()
 
     print("\n" + "=" * 62)
     if FAILED:
