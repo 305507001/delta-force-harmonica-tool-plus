@@ -521,6 +521,7 @@ class Effects:
     """
 
     HIT_S = 0.9          # 一次特效多长
+    STEP_S = 1 / 30      # 特效最多 30 帧一动：选 60 帧时另一半帧只重画轨道，不用连带特效飞过的整块地方
     MAX_FULL = 3         # 同时最多几个完整特效（多了只放光环）
     DENSE_S = 0.15       # 两个音挨得这么近，后一个只放光环
 
@@ -533,6 +534,9 @@ class Effects:
         self._pool: Dict[str, List[int]] = {"ring": [], "dove": [], "note": []}
         self._last_full = -1e9
         self._doves: Dict[int, tk.PhotoImage] = {}
+        self._fonts: Dict[int, Tuple[str, int, str]] = {}
+        self._shown: Dict[int, dict] = {}   # 每个图形上一次设的选项，没变就不再去改
+        self._stepped = -1e9
         self._dove_ok = os.path.isdir(_DOVE_DIR)
         self._note_family = "Segoe UI Symbol" if _IS_WIN else "Arial Unicode MS"
 
@@ -557,7 +561,7 @@ class Effects:
         pool = self._pool[kind]
         if pool:
             item = pool.pop()
-            self.c.itemconfigure(item, state="normal")
+            self._set(item, state="normal")
             return item
         if kind == "ring":
             return self.c.create_oval(0, 0, 1, 1, outline="#f0997b", width=2, tags=("fx",))
@@ -566,8 +570,23 @@ class Effects:
         return self.c.create_text(0, 0, text="", tags=("fx",))
 
     def _give(self, kind: str, item: int) -> None:
-        self.c.itemconfigure(item, state="hidden")
+        self._set(item, state="hidden")
         self._pool[kind].append(item)
+
+    def _set(self, item: int, **options) -> None:
+        shown = self._shown.setdefault(item, {})
+        changed = {k: v for k, v in options.items() if shown.get(k) != v}
+        if changed:
+            self.c.itemconfigure(item, **changed)
+            shown.update(changed)
+
+    def _note_font(self, size: int) -> Tuple[str, int, str]:
+        """音符字号只用偶数档：Tk 每碰到一个新字号就要新建一份字体。"""
+        size = max(4, size // 2 * 2)
+        font = self._fonts.get(size)
+        if font is None:
+            font = self._fonts[size] = (self._note_family, -size, "bold")
+        return font
 
     # ---------------- 放特效 ----------------
 
@@ -583,7 +602,7 @@ class Effects:
                 effect["dove"] = self._take("dove")
             for index, (glyph, color) in enumerate(_FX_NOTES):
                 item = self._take("note")
-                self.c.itemconfigure(item, text=glyph, fill=color)
+                self._set(item, text=glyph, fill=color)
                 dx = (index - 1) * 26 + (index - 1) * 4
                 dy = -(36 + index * 9)
                 effect["notes"].append((item, dx, dy))
@@ -591,6 +610,11 @@ class Effects:
 
     def update(self, now: float) -> bool:
         """每帧调一次，返回还有没有特效在放。"""
+        if not self.active:
+            return False
+        if now - self._stepped < self.STEP_S * 0.8:
+            return True
+        self._stepped = now
         px = self.px
         for effect in list(self.active):
             t = now - effect["t0"]
@@ -604,7 +628,7 @@ class Effects:
                 if t < 0.4:
                     r = px(13 + 20 * _ease_out(t / 0.4))
                     self.c.coords(ring, x - r, y - r, x + r, y + r)
-                    self.c.itemconfigure(ring, width=max(1, px(2 * (1 - t / 0.4) + 0.4)))
+                    self._set(ring, width=max(1, px(2 * (1 - t / 0.4) + 0.4)))
                 else:
                     self._give("ring", ring)
                     effect["ring"] = None
@@ -613,17 +637,16 @@ class Effects:
                 ox, oy, scale = _keyframes(u, [(0, 0, 0, .35), (.18, 0, -9, 1.15), (.7, 34, -62, 1), (1, 48, -80, .05)])
                 image = self.dove(px(26) * scale) if scale > 0.08 else None
                 if image is None:
-                    self.c.itemconfigure(dove, state="hidden")
+                    self._set(dove, state="hidden")
                 else:
-                    self.c.itemconfigure(dove, image=image, state="normal")
+                    self._set(dove, image=str(image), state="normal")
                     self.c.coords(dove, x + px(ox), y + px(oy - 4))
             for item, dx, dy in effect["notes"]:
                 ox, oy, scale = _keyframes(u / 0.89, [(0, 0, 0, .4), (.55, dx * .6, dy, 1.1), (1, dx, dy * .45, .05)])
                 if scale < 0.12:
-                    self.c.itemconfigure(item, state="hidden")
+                    self._set(item, state="hidden")
                     continue
-                self.c.itemconfigure(item, state="normal",
-                                     font=(self._note_family, -max(4, px(18 * scale)), "bold"))
+                self._set(item, state="normal", font=self._note_font(px(18 * scale)))
                 self.c.coords(item, x + px(ox), y + px(oy))
         if self.active:
             self.c.tag_raise("fx")
@@ -647,6 +670,7 @@ class Effects:
         self.active.clear()
         for pool in self._pool.values():
             pool.clear()
+        self._shown.clear()
 
 
 class OverlayWindow(tk.Toplevel):
