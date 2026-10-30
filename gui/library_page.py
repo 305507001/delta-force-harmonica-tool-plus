@@ -100,22 +100,28 @@ class LibraryPage(tk.Frame):
         """切换「我的曲库」/「在线曲库」。在线曲库第一次打开时才创建、才联网。"""
         self._tab = key
         self.tabs.set(key)
+        self.layout_tab(key)
+        if key == "online":
+            self.lbl_count.configure(text="Dr-hydra 公开曲库 · 玩家上传的曲谱 · 只读")
+            self.online.tkraise()
+            self.online.on_show()
+        else:
+            self.refresh()
+
+    def layout_tab(self, key: str) -> None:
+        """只换摆放、不联网。主窗口启动时也用它量一下在线曲库要多大的地方。"""
         if key == "online":
             if self.online is None:
                 self.online = OnlinePanel(self, self.app)
                 self.online.grid(row=1, column=0, rowspan=2, sticky="nsew")
             self._local_wrap.grid_remove()
             self._local_actions.grid_remove()
-            self.lbl_count.configure(text="Dr-hydra 公开曲库 · 玩家上传的曲谱 · 只读")
             self.online.grid()
-            self.online.tkraise()
-            self.online.on_show()
         else:
             if self.online is not None:
                 self.online.grid_remove()
             self._local_actions.grid()
             self._local_wrap.grid()
-            self.refresh()
 
     def _build_list(self) -> None:
         P = Palette

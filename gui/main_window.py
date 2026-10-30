@@ -28,7 +28,7 @@ import queue
 import sys
 import time
 import tkinter as tk
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 from kouqin.engine import NullSender, PlayState, Player, compile_notes
 from kouqin.hotkeys import GlobalHotkeys
@@ -44,7 +44,7 @@ from .overlay import OverlayController
 from .settings_page import SettingsPage
 from .theme import (
     Palette, apply_theme, enable_dpi_awareness, make_button, make_label, mono_font, px, screen_scale,
-    set_appearance, title_font,
+    set_appearance, title_font, ui_scale,
 )
 from .widgets import RoundButton
 
@@ -84,7 +84,6 @@ class MainWindow(tk.Tk):
         self.restart_requested = False
         self.title(f"{APP_NAME} — {APP_SUB}")
         apply_theme(self, self.settings.ui_size)
-        self._fit_window()
         self.configure(bg=Palette["bg"])
         self._dark_title_bar()
 
@@ -105,6 +104,7 @@ class MainWindow(tk.Tk):
 
         self._install_presets_if_needed()
         self._build()
+        self._fit_window()
         # 别的线程（播放、热键、联网）交给界面线程的活儿都走这个队列，界面线程每 10ms 取一次。
         # 不能直接在别的线程里调 self.after(...)：Tk 会让那个线程停下来等界面线程处理完，
         # 界面线程这时要是正在等它（比如停止演奏时等播放线程退出），两边就互相卡住。
@@ -145,12 +145,54 @@ class MainWindow(tk.Tk):
         self.settings.save()
 
     def _fit_window(self) -> None:
-        """窗口大小按缩放换算，但不超过屏幕（留出任务栏），居中放。"""
-        screen_w, screen_h = self.winfo_screenwidth(), self.winfo_screenheight()
-        width = min(px(1100), screen_w - px(40))
-        height = min(px(720), screen_h - px(90))
-        self.minsize(min(px(860), width), min(px(560), height))
-        self.geometry(f"{width}x{height}+{max(0, (screen_w - width) // 2)}+{max(0, (screen_h - height) // 3)}")
+        """
+        窗口大小按内容算：刚好能把每个页面（包括在线曲库）的按钮都完整摆下，再留一点余量；
+        最小尺寸也定成这么大，免得拖小了把按钮挤没。上次关掉时调过大小就用上次的。
+        """
+        library = self.page_library
+        library.layout_tab("online")             # 在线曲库那一栏最宽，先摆出来量一下（不联网）
+        self.update_idletasks()
+        need_w, need_h = self.winfo_reqwidth(), self.winfo_reqheight()
+        library.layout_tab("local")
+        self.update_idletasks()
+        need_w, need_h = max(need_w, self.winfo_reqwidth()), max(need_h, self.winfo_reqheight())
+        left, top, area_w, area_h = _work_area(self)
+        self._need = (min(need_w, area_w), min(need_h, area_h))
+        self.minsize(*self._need)
+
+        s = self.settings
+        width, height = need_w + px(24), need_h + px(40)
+        if s.window_w and s.window_h and abs(s.window_scale - ui_scale()) < 0.01:
+            width, height = max(s.window_w, need_w), max(s.window_h, need_h)
+        width, height = min(width, area_w), min(height, area_h - px(30))   # 标题栏另算
+        x = left + max(0, (area_w - width) // 2)
+        y = top + max(0, (area_h - height) // 3)
+        self.geometry(f"{width}x{height}+{x}+{y}")
+        if s.window_zoomed and sys.platform == "win32":
+            self.state("zoomed")
+
+    def _ensure_fits(self) -> None:
+        """后建出来的页面（高级）要的地方更大时，把窗口和最小尺寸跟着放大。"""
+        self.update_idletasks()
+        _left, _top, area_w, area_h = _work_area(self)
+        need_w = min(max(self._need[0], self.winfo_reqwidth()), area_w)
+        need_h = min(max(self._need[1], self.winfo_reqheight()), area_h)
+        if (need_w, need_h) == self._need:
+            return
+        self._need = (need_w, need_h)
+        self.minsize(need_w, need_h)
+        if self.winfo_width() < need_w or self.winfo_height() < need_h:
+            self.geometry(f"{max(self.winfo_width(), need_w)}x{max(self.winfo_height(), need_h)}")
+
+    def _remember_size(self) -> None:
+        s = self.settings
+        try:
+            s.window_zoomed = self.state() == "zoomed"
+            if not s.window_zoomed and self.state() == "normal":
+                s.window_w, s.window_h = self.winfo_width(), self.winfo_height()
+                s.window_scale = ui_scale()
+        except tk.TclError:
+            pass
 
     def _dark_title_bar(self) -> None:
         """深色外观时把 Windows 的标题栏也换成深色（Win10 1809+ / Win11 才有，别的系统什么都不做）。"""
@@ -268,6 +310,7 @@ class MainWindow(tk.Tk):
             self.page_advanced = AdvancedPage(self.pages["library"].master, self)
             self.page_advanced.grid(row=0, column=0, sticky="nsew")
             self.pages["advanced"] = self.page_advanced
+            self._ensure_fits()
 
         page = self.pages.get(key)
         if page is None:
@@ -735,9 +778,23 @@ class MainWindow(tk.Tk):
             self.overlay.close()
             self.preview.close()
             self.hotkeys.shutdown()
+            self._remember_size()
             self.settings.save()
         finally:
             self.destroy()
+
+
+def _work_area(window: tk.Misc) -> Tuple[int, int, int, int]:
+    """屏幕上去掉任务栏的那块地方：(左, 上, 宽, 高)。只有 Windows 能问到，别的系统估一个。"""
+    if sys.platform == "win32":
+        try:
+            from ctypes import wintypes
+            rect = wintypes.RECT()
+            if ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0):  # SPI_GETWORKAREA
+                return rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top
+        except (AttributeError, OSError):
+            pass
+    return 0, 0, window.winfo_screenwidth(), window.winfo_screenheight() - px(60)
 
 
 # ---------------------------------------------------------------------- #

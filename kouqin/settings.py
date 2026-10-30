@@ -158,6 +158,10 @@ class AppSettings:
     hit_effects: bool = True            # 按中时放命中特效（鸽子 + 音符）
     easter_egg: bool = True             # 彩蛋：偶尔冒出一只吐槽的鸽子
     overlay_fps: int = 60               # 悬浮窗每秒画几帧（60 / 30；30 更省电脑，读按键的频率不变）
+    window_w: int = 0                   # 上次关掉时主窗口的大小（0 = 没记过，按内容算）
+    window_h: int = 0
+    window_scale: float = 0.0           # 记大小时的缩放；缩放变了就不用旧大小
+    window_zoomed: bool = False         # 上次是不是最大化
     overlay_keyboard: bool = True       # 显示下方的键盘提示行
     overlay_anchor: str = "upper"       # 悬浮窗位置预设：top / upper / lower / bottom / custom
     overlay_x: Optional[int] = None     # 拖动过的位置（overlay_anchor 为 custom 时用）
@@ -274,6 +278,10 @@ class AppSettings:
         settings.hit_effects = bool(data.get("hit_effects", True))
         settings.easter_egg = bool(data.get("easter_egg", True))
         settings.overlay_fps = 30 if data.get("overlay_fps") == 30 else 60
+        settings.window_w = int(clamp(data.get("window_w", 0), 0, 20000, 0))
+        settings.window_h = int(clamp(data.get("window_h", 0), 0, 20000, 0))
+        settings.window_scale = clamp(data.get("window_scale", 0.0), 0.0, 8.0, 0.0)
+        settings.window_zoomed = bool(data.get("window_zoomed", False))
         if data.get("appearance") in APPEARANCES:
             settings.appearance = data["appearance"]
         settings.ui_size = clamp(data.get("ui_size", 1.0), 0.8, 1.6, 1.0)
