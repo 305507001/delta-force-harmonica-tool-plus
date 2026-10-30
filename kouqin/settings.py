@@ -51,6 +51,25 @@ OVERLAY_ANCHORS = ("top", "upper", "lower", "bottom", "custom")
 #: 界面外观：跟随系统 / 浅色 / 深色
 APPEARANCES = ("system", "light", "dark")
 
+#: 能当快捷键的键（都是游戏里一般不用、也不会和音键冲突的键）：(键名, 显示名)
+HOTKEY_CHOICES = (
+    [(f"f{i}", f"F{i}") for i in range(1, 13)]
+    + [("insert", "Insert"), ("delete", "Delete"), ("home", "Home"), ("end", "End"),
+       ("pageup", "PageUp"), ("pagedown", "PageDown")]
+    + [(f"num{i}", f"小键盘 {i}") for i in range(10)]
+)
+HOTKEY_NAMES = {key: label for key, label in HOTKEY_CHOICES}
+#: 三个快捷键：(设置字段, 默认键, 用途)
+HOTKEY_ACTIONS = (
+    ("hotkey_play", "f6", "开始 / 暂停 / 继续"),
+    ("hotkey_pause", "f7", "暂停 / 继续"),
+    ("hotkey_stop", "f8", "停止"),
+)
+
+
+def hotkey_label(key: str) -> str:
+    return HOTKEY_NAMES.get((key or "").lower(), (key or "").upper())
+
 #: 允许作为音键的字符（防止用户填进奇怪的东西）
 _ALLOWED_KEYS = set("abcdefghijklmnopqrstuvwxyz0123456789,./;'[]\\-=")
 
@@ -145,6 +164,11 @@ class AppSettings:
     # --- 在线曲库 ---
     online_library_base: str = ""       # 空 = 用默认地址（kouqin.online.DEFAULT_BASE）
 
+    # --- 快捷键 ---
+    hotkey_play: str = "f6"             # 开始 / 暂停 / 继续（倒计时中按是取消）
+    hotkey_pause: str = "f7"            # 只管暂停 / 继续，没在播放时按什么都不做
+    hotkey_stop: str = "f8"             # 停止并松开所有按键
+
     # --- 外观 ---
     appearance: str = "system"          # system / light / dark
     ui_size: float = 1.0                # 界面大小：1.0 标准，1.15 大，1.3 更大……（乘在屏幕缩放上）
@@ -183,6 +207,11 @@ class AppSettings:
         used = [v for v in self.mod_assign.values() if v]
         if len(used) != len(set(used)):
             problems.append("同一个鼠标键被分配了多个功能")
+        hotkeys = [getattr(self, field) for field, _default, _what in HOTKEY_ACTIONS]
+        if len(set(hotkeys)) != len(hotkeys):
+            problems.append("三个快捷键不能有重复的")
+        if set(hotkeys) & set(keys):
+            problems.append("快捷键和音键重复了")
         return problems
 
     def timing_preset(self):
@@ -242,6 +271,13 @@ class AppSettings:
         if data.get("appearance") in APPEARANCES:
             settings.appearance = data["appearance"]
         settings.ui_size = clamp(data.get("ui_size", 1.0), 0.8, 1.6, 1.0)
+        chosen = {}
+        for field, default, _what in HOTKEY_ACTIONS:
+            key = str(data.get(field, default) or default).lower()
+            chosen[field] = key if key in HOTKEY_NAMES else default
+        if len(set(chosen.values())) == len(chosen):          # 配置文件里手改成重复的，就全退回默认
+            for field, key in chosen.items():
+                setattr(settings, field, key)
         settings.overlay_pos_scale = clamp(data.get("overlay_pos_scale", 0.0), 0.0, 4.0, 0.0)
         settings.overlay_keyboard = bool(data.get("overlay_keyboard", True))
         for attr in ("overlay_x", "overlay_y"):
@@ -305,7 +341,7 @@ class AppSettings:
                      "overlay_scale", "overlay_alpha", "overlay_keyboard",
                      "overlay_anchor", "overlay_x", "overlay_y", "legato",
                      "online_library_base", "overlay_backdrop", "appearance", "ui_size",
-                     "overlay_pos_scale"):
+                     "overlay_pos_scale", "hotkey_play", "hotkey_pause", "hotkey_stop"):
             setattr(self, attr, getattr(fresh, attr))
         self.installed_presets = keep_presets
         self.preset_revision = keep_revision

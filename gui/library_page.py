@@ -460,7 +460,7 @@ class LibraryPage(tk.Frame):
         self.btn_pause.configure(state=tk.DISABLED)
 
     def show_paused(self, name: str) -> None:
-        self.lbl_mode.configure(text="已暂停 · F6 继续", fg=Palette["text_dim"])
+        self.lbl_mode.configure(text=f"已暂停 · {self.app.hotkey_text('pause')} 继续", fg=Palette["text_dim"])
         self.lbl_now.configure(text=name)
         self.btn_pause.configure(state=tk.NORMAL, text="继续", icon_name="play")
         self._update_badge()

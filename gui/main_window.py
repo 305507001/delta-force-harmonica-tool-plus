@@ -34,7 +34,7 @@ from kouqin.engine import NullSender, PlayState, Player, compile_notes
 from kouqin.hotkeys import GlobalHotkeys
 from kouqin.layout import FoldMode, Layout
 from kouqin.preview import Preview
-from kouqin.settings import AppSettings, LIBRARY_DIR, settings_path
+from kouqin.settings import AppSettings, LIBRARY_DIR, hotkey_label, settings_path
 from kouqin.tune import PRESET_REVISION, Tune, TuneLibrary
 
 from .composer_page import ComposerPage
@@ -204,15 +204,16 @@ class MainWindow(tk.Tk):
         # 演奏中的状态 + 全局停止：任何页面都能按到，出问题不用去翻页面
         self.lbl_nav_status = make_label(inner, "", dim=True, anchor="w")
         self.lbl_nav_status.pack(fill=tk.X, padx=px(10), pady=(0, px(4)))
-        self.btn_stop = make_button(inner, "停止演奏  F8", self.stop, kind="danger")
+        self.btn_stop = make_button(inner, f"停止演奏  {self.hotkey_text('stop')}", self.stop, kind="danger")
         self.btn_stop.pack(fill=tk.X, pady=(0, px(12)))
         self.btn_stop.configure(state=tk.DISABLED)
 
         nav_button("settings", "设置", "settings").pack(fill=tk.X, pady=px(1))
         RoundButton(inner, text="使用步骤", icon_name="help", kind="nav", anchor="w", height=40, size=11,
                     padx=12, command=self.show_guide).pack(fill=tk.X, pady=px(1))
-        make_label(inner, "F6 开始 / 暂停　F8 停止", size=8, fg=P["text_muted"], anchor="w").pack(
-            fill=tk.X, padx=px(10), pady=(px(10), 0))
+        self.lbl_hotkeys = make_label(inner, self._hotkey_hint(), size=8, fg=P["text_muted"], anchor="w",
+                                      justify=tk.LEFT)
+        self.lbl_hotkeys.pack(fill=tk.X, padx=px(10), pady=(px(10), 0))
 
     def _build_pages(self) -> None:
         holder = tk.Frame(self, bg=Palette["bg"])
@@ -313,14 +314,43 @@ class MainWindow(tk.Tk):
         self.player.on_finish = lambda: self.call_soon(self._on_finish)
 
     def _hotkey_stop(self) -> None:
-        """F8（在热键线程里跑）：先当场停掉播放、松开所有按键，界面的事再交给界面线程。"""
+        """停止键（在热键线程里跑）：先当场停掉播放、松开所有按键，界面的事再交给界面线程。"""
         self.player.stop()
         self.call_soon(self.stop)
 
+    def _hotkey_pause(self) -> None:
+        """
+        暂停键（在热键线程里跑）：只管暂停 / 继续，当场生效、暂停时立刻松开所有按键。
+
+        没在播放、或者还在倒计时，按了什么都不做——不会像开始键那样把曲子从头放起来。
+        界面跟着播放器的状态回调更新（走 call_soon 队列）。
+        """
+        state = self.player.state
+        if state == PlayState.PLAYING:
+            self.player.pause()
+        elif state == PlayState.PAUSED:
+            self.player.resume()
+
+    def hotkey_text(self, action: str) -> str:
+        """``play`` / ``pause`` / ``stop`` 现在绑的是哪个键（显示用）。"""
+        return hotkey_label(getattr(self.settings, f"hotkey_{action}", ""))
+
+    def _hotkey_hint(self) -> str:
+        return (f"{self.hotkey_text('play')} 开始 / 暂停\n"
+                f"{self.hotkey_text('pause')} 暂停 / 继续　{self.hotkey_text('stop')} 停止")
+
     def _bind_hotkeys(self) -> None:
-        self.hotkeys.bind("f6", lambda: self.call_soon(self.toggle_play))
-        self.hotkeys.bind("f8", self._hotkey_stop)
+        self._apply_hotkeys()
         self.hotkeys.start()
+
+    def _apply_hotkeys(self) -> None:
+        bad = self.hotkeys.replace({
+            self.settings.hotkey_play: lambda: self.call_soon(self.toggle_play),
+            self.settings.hotkey_pause: self._hotkey_pause,
+            self.settings.hotkey_stop: self._hotkey_stop,
+        })
+        if bad:
+            self.log("这些快捷键认不出来，没有生效：" + "、".join(bad))
 
     def play_tune(self, tune: Tune, mode: str = MODE_AUTO) -> None:
         """
@@ -457,7 +487,7 @@ class MainWindow(tk.Tk):
         self.play_tune(tune, mode)
 
     def toggle_play(self) -> None:
-        """F6：倒计时中取消，演奏中暂停，暂停中继续。"""
+        """开始键（默认 F6）：没在播放时开始，倒计时中取消，演奏中暂停，暂停中继续。"""
         state = self.player.state
         if state == PlayState.COUNTDOWN:
             self.stop()
@@ -480,7 +510,8 @@ class MainWindow(tk.Tk):
         self.overlay.on_seek(position)
         self._on_progress(position, 0, 0)
         if self.player.state == PlayState.PAUSED:
-            self.lbl_status.configure(text=f"已暂停（按 F6 继续）　{_mmss(position)} / {_mmss(self.player.total)}")
+            self.lbl_status.configure(text=f"已暂停（按 {self.hotkey_text('pause')} 继续）　"
+                                           f"{_mmss(position)} / {_mmss(self.player.total)}")
         return True
 
     def stop(self) -> None:
@@ -516,7 +547,7 @@ class MainWindow(tk.Tk):
             self.btn_stop.configure(state=tk.NORMAL)
             self.page_library.show_playing(name)
         elif state == PlayState.PAUSED:
-            self.lbl_status.configure(text="已暂停（按 F6 继续）")
+            self.lbl_status.configure(text=f"已暂停（按 {self.hotkey_text('pause')} 继续）")
             self.lbl_nav_status.configure(text="已暂停", fg=Palette["text_dim"])
             self.page_library.show_paused(name)
         elif state == PlayState.COUNTDOWN:
@@ -610,6 +641,9 @@ class MainWindow(tk.Tk):
         self.settings.save()
         self.layout = self.settings.to_layout()
         self.overlay.apply_settings(self.settings)
+        self._apply_hotkeys()
+        self.lbl_hotkeys.configure(text=self._hotkey_hint())
+        self.btn_stop.configure(text=f"停止演奏  {self.hotkey_text('stop')}")
         self.log("设置已生效：" + self.layout.summary())
 
     def on_overlay_moved(self, x: int, y: int) -> None:
@@ -672,7 +706,8 @@ class MainWindow(tk.Tk):
         self.log("⚠ 严禁在任何在线对局中使用 —— 可能违反游戏用户协议并导致封号。")
         self.log("⚠ 一切后果由使用者自行承担，作者不承担任何责任。详见 DISCLAIMER.md")
         self.log("─" * 58)
-        self.log(f"{APP_NAME} 已启动。热键：F6 开始/暂停　F8 停止")
+        self.log(f"{APP_NAME} 已启动。热键：{self.hotkey_text('play')} 开始/暂停　"
+                 f"{self.hotkey_text('pause')} 暂停/继续　{self.hotkey_text('stop')} 停止")
         self.log("想自己吹？曲库里点「跟弹」：游戏画面上会浮出按键提示，你自己按，程序一个键都不按。")
         if not is_admin():
             self.log("提示：当前不是管理员权限。若游戏里完全没反应，请用「以管理员启动.bat」重开。")

@@ -114,6 +114,28 @@ class GlobalHotkeys(threading.Thread):
         self._labels.clear()
         self._down.clear()
 
+    def replace(self, bindings: Dict[str, Callable[[], None]]) -> List[str]:
+        """
+        整张换掉绑定（设置里改了快捷键时用），返回认不出来的键名。
+
+        新表建好后一次性换上去，监听线程正在遍历的是旧表，不会撞上"遍历中被改"。
+        新键先当成"已按下"，免得保存设置那一刻正好按着这个键、马上误触发一次。
+        """
+        table: Dict[int, Callable[[], None]] = {}
+        labels: Dict[int, str] = {}
+        bad: List[str] = []
+        for name, callback in bindings.items():
+            vk = VK.get((name or "").lower())
+            if vk is None:
+                bad.append(name)
+                continue
+            table[vk] = callback
+            labels[vk] = VK_LABEL.get(name.lower(), name.upper())
+        self._down = {vk: True for vk in table}
+        self._labels = labels
+        self._bindings = table
+        return bad
+
     @property
     def bindings(self) -> Dict[str, str]:
         """``{显示名: 是否已注册}``，供界面展示。"""
@@ -134,7 +156,7 @@ class GlobalHotkeys(threading.Thread):
     def run(self) -> None:
         while not self._stopped.is_set():
             if not self._suspended:
-                for vk, callback in self._bindings.items():
+                for vk, callback in list(self._bindings.items()):
                     pressed = bool(_user32.GetAsyncKeyState(vk) & 0x8000)
                     if pressed and not self._down.get(vk, False):
                         try:

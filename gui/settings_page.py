@@ -17,6 +17,7 @@ from typing import Dict, List, Optional, Tuple
 
 from kouqin.engine import TIMING_PRESETS
 from kouqin.layout import MOD_FEATURE_LABELS, MouseMod
+from kouqin.settings import HOTKEY_ACTIONS, HOTKEY_CHOICES, hotkey_label
 from kouqin.tune import STEP_DIGITS, STEP_NAMES
 
 from .theme import (
@@ -161,6 +162,7 @@ class SettingsPage(tk.Frame):
         self._build_appearance_card(holder)
         self._build_keys_card(holder)
         self._build_mods_card(holder)
+        self._build_hotkeys_card(holder)
         self._build_play_card(holder)
         self._build_overlay_card(holder)
         self._build_online_card(holder)
@@ -254,6 +256,40 @@ class SettingsPage(tk.Frame):
 
         self.lbl_mod_warn = make_label(body, "", dim=True)
         self.lbl_mod_warn.pack(anchor="w", pady=(px(8), 0))
+
+    def _build_hotkeys_card(self, parent) -> None:
+        body = self._card(
+            parent, "快捷键",
+            "游戏里也能按的全局快捷键。程序只是「看」按键，不会拦下来——游戏同样会收到这个键，"
+            "所以要选游戏里没用到的键。",
+        )
+        row = tk.Frame(body, bg=Palette["panel"])
+        row.pack(fill=tk.X)
+        labels = [label for _key, label in HOTKEY_CHOICES]
+        self.hotkey_vars: Dict[str, tk.StringVar] = {}
+        for field, _default, what in HOTKEY_ACTIONS:
+            cell = tk.Frame(row, bg=Palette["panel"])
+            cell.pack(side=tk.LEFT, padx=(0, px(24)))
+            make_label(cell, what).pack(anchor="w", pady=(0, px(4)))
+            var = tk.StringVar(value=hotkey_label(getattr(self.settings, field)))
+            combo = make_combobox(cell, labels, var, width=10)
+            combo.pack(anchor="w")
+            combo.bind("<<ComboboxSelected>>", lambda e: self._check_hotkeys())
+            self.hotkey_vars[field] = var
+        self.lbl_hotkey_warn = make_label(body, "", dim=True)
+        self.lbl_hotkey_warn.pack(anchor="w", pady=(px(8), 0))
+
+    def _hotkey_values(self) -> Dict[str, str]:
+        by_label = {label: key for key, label in HOTKEY_CHOICES}
+        return {field: by_label.get(var.get(), default)
+                for (field, default, _what), var in zip(HOTKEY_ACTIONS, self.hotkey_vars.values())}
+
+    def _check_hotkeys(self) -> None:
+        values = list(self._hotkey_values().values())
+        if len(set(values)) != len(values):
+            self.lbl_hotkey_warn.configure(text="⚠ 三个快捷键不能有重复的", fg=Palette["warn"])
+        else:
+            self.lbl_hotkey_warn.configure(text="改完点「保存设置」生效，不用重开程序", fg=Palette["text_dim"])
 
     def _build_play_card(self, parent) -> None:
         body = self._card(
@@ -600,6 +636,9 @@ class SettingsPage(tk.Frame):
         self.var_backdrop.set(round(self.settings.overlay_backdrop * 100))
         self.seg_appearance.set(self.settings.appearance)
         self.seg_size.set(_size_key(self.settings.ui_size))
+        for field, _default, _what in HOTKEY_ACTIONS:
+            self.hotkey_vars[field].set(hotkey_label(getattr(self.settings, field)))
+        self._check_hotkeys()
         self.var_anchor.set(self._anchor_label(self.settings.overlay_anchor))
         self.var_legato.set(self.settings.legato)
         from kouqin.online import DEFAULT_BASE
@@ -690,6 +729,8 @@ class SettingsPage(tk.Frame):
         self._collect_overlay()
         self.settings.appearance = self.seg_appearance.value or "system"
         self.settings.ui_size = float(self.seg_size.value or "1.0")
+        for field, key in self._hotkey_values().items():
+            setattr(self.settings, field, key)
         self.settings.legato = bool(self.var_legato.get())
         from kouqin.online import DEFAULT_BASE
         base = self.var_online_base.get().strip().rstrip("/")

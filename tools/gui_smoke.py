@@ -121,6 +121,8 @@ class Smoke:
             self.step_stop_hotkey,
             self.step_stop_hotkey_check,
             self.step_stop_button,
+            self.step_pause_hotkey,
+            self.step_hotkey_settings,
             self.step_seek_bar,
             self.step_seek_finish,
             self.step_overlay_adjust,
@@ -330,6 +332,42 @@ class Smoke:
         self.say(released and (released[0] - began) * 1000 < 50 and took < 150,
                  "点停止立刻松开、界面不卡", f"停止用时 {took:.0f} ms")
         self.window.settings.speed = 4.0
+
+    def step_pause_hotkey(self) -> None:
+        # 模拟在游戏里按 F7：热键线程里暂停 → 立刻松开按键；再按一次继续；没在播放时按什么都不做
+        import threading
+        self._start_long_auto()
+        mark = time.perf_counter()
+        hotkey = threading.Thread(target=self.window._hotkey_pause)
+        hotkey.start()
+        hotkey.join(2.0)
+        released = [t for t in self.sender.releases if t >= mark]
+        paused = self.window.player.state == "paused"
+        self.say(paused and released and not self.sender.held,
+                 "按 F7 暂停，按键立刻松开", f"{(released[0] - mark) * 1000:.0f} ms" if released else "没松开")
+        hotkey = threading.Thread(target=self.window._hotkey_pause)
+        hotkey.start()
+        hotkey.join(2.0)
+        self.say(self.window.player.state == "playing", "再按 F7 继续演奏")
+        self.window.stop()
+        self.window._hotkey_pause()
+        self.say(self.window.player.state == "idle", "没在播放时按 F7 不会开始演奏")
+        self.window.settings.speed = 4.0
+
+    def step_hotkey_settings(self) -> None:
+        self.window.show_page("settings")
+        page = self.window.page_settings
+        page.hotkey_vars["hotkey_pause"].set("F9")
+        page._save()
+        self.window.update()
+        hint = self.window.lbl_hotkeys.cget("text")
+        self.say(self.window.settings.hotkey_pause == "f9" and "F9" in hint,
+                 "设置里把暂停键改成 F9 后立刻生效", hint.replace("\n", " "))
+        page.hotkey_vars["hotkey_pause"].set("F8")              # 和停止键重复
+        page._check_hotkeys()
+        self.say("重复" in page.lbl_hotkey_warn.cget("text"), "快捷键重复时有提示")
+        page.hotkey_vars["hotkey_pause"].set("F7")
+        page._save()
 
     def step_overlay_adjust(self) -> None:
         overlay = self.window.overlay

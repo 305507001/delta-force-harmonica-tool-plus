@@ -41,6 +41,7 @@ from kouqin.engine import PlayState, Slot, compile_notes
 from kouqin.jianpu import parse_jianpu
 from kouqin.layout import Combo, Layout, MouseMod
 from kouqin.practice import Judge, Mark, Verdict
+from kouqin.settings import hotkey_label
 from kouqin.tune import OCTAVE_COLORS, STEP_DIGITS
 
 from .theme import blend, screen_scale
@@ -1133,7 +1134,8 @@ class OverlayWindow(tk.Toplevel):
         px = g.px
         cx = (g.line_x + g.lane_right) / 2
         if frame.state == PlayState.PAUSED:
-            big, sub, color = "已暂停", "按 F6 继续", OV["text"]
+            hint = getattr(self, "pause_hint", "F7")
+            big, sub, color = "已暂停", f"按 {hint} 继续", OV["text"]
         elif frame.message:
             big, sub, color = frame.message, frame.submessage, OV["accent"]
         else:
@@ -1233,6 +1235,7 @@ class OverlayController:
     def apply_settings(self, settings) -> None:
         if self.window is None:
             return
+        self.window.pause_hint = hotkey_label(getattr(settings, "hotkey_pause", "f7"))
         x, y = settings.overlay_x, settings.overlay_y
         if x is not None and y is not None:
             # 拖过的位置是按当时的屏幕缩放存的；老版本不感知 DPI，存的是缩放前的坐标
