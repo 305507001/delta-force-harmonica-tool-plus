@@ -648,8 +648,6 @@ class Effects:
                     continue
                 self._set(item, state="normal", font=self._note_font(px(18 * scale)))
                 self.c.coords(item, x + px(ox), y + px(oy))
-        if self.active:
-            self.c.tag_raise("fx")
         return bool(self.active)
 
     def _release(self, effect: dict) -> None:
@@ -1078,6 +1076,8 @@ class OverlayWindow(tk.Toplevel):
                                       font=(_FONT_KEY, -px(16), "bold"))
                 self._caps.append((rect, digit, label))
         self._cap_dy = [0] * len(self._caps)
+        # 分层标记：它下面是底板、轨道、音符、文字，上面是特效和彩蛋（特效用到时才建，自然在最上面）
+        self._layer = c.create_line(0, 0, 0, 0, state="hidden", tags=("layer",))
 
         if not self._visible:
             c.itemconfigure("static", state="hidden")
@@ -1103,11 +1103,17 @@ class OverlayWindow(tk.Toplevel):
             return
         self._show(True)
 
+        # 每帧新画的东西都插到「分层标记」下面，特效一直在最上层，不用每帧把特效往上提——
+        # 提一次 Tk 就当特效那块地方变了，整块重画（特效往上飞，那块地方比轨道大得多）
+        layer = self._layer
         self._draw_header(frame)
         # 判定线画在音符下面：音符走到线上时按键字母完整露出来，不会被线划过
         self._draw_line(frame)
+        c.tag_lower("dyn", layer)
+        c.addtag_withtag("dyn_under", "dyn")
         self._draw_notes(frame)
-        c.tag_raise("cover")
+        c.tag_lower("note", layer)
+        c.tag_lower("cover", layer)
         self._draw_mouse(frame)
         self._draw_keyboard(frame)
         self._draw_feedback(frame)
@@ -1116,7 +1122,7 @@ class OverlayWindow(tk.Toplevel):
             g = self.geo
             _round_rect(c, 2, 2, g.w - 3, g.h - 3, g.px(14), fill="", outline=OV["warn"],
                         width=2, tags=("dyn",))
-        c.tag_raise("fx")
+        c.tag_lower("dyn&&!dyn_under", layer)
 
     # ------------------------------------------------------------------ #
     # 命中特效
@@ -1405,7 +1411,6 @@ class OverlayWindow(tk.Toplevel):
             for item in self._note_items.pop(index).values():
                 c.delete(item)
                 self._cache.pop(item, None)
-        c.tag_raise("note")
 
     def _note_part(self, items: Dict[str, int], kind: str, create: Callable[[], int]) -> int:
         item = items.get(kind)
