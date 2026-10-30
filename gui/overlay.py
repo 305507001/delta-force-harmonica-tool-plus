@@ -33,6 +33,7 @@ import bisect
 import ctypes
 import math
 import os
+import random
 import sys
 import time
 import tkinter as tk
@@ -42,7 +43,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 from kouqin.engine import PlayState, Slot, compile_notes
 from kouqin.jianpu import parse_jianpu
 from kouqin.layout import Combo, Layout, MouseMod
-from kouqin.practice import Judge, Mark, Verdict
+from kouqin.practice import EGG_LINES, EggTrigger, Judge, Mark, Verdict
 from kouqin.settings import hotkey_label
 from kouqin.tune import OCTAVE_COLORS, STEP_DIGITS
 
@@ -229,6 +230,7 @@ class Frame:
     message: str = ""               # 盖在轨道中央的大字
     submessage: str = ""
     unlocked: bool = False          # 正在调整位置
+    sore: frozenset = frozenset()   # 跟弹时栽满 2 次的音（描红边，再错就要被鸽子吐槽了）
 
 
 class _Geometry:
@@ -687,6 +689,7 @@ class OverlayWindow(tk.Toplevel):
         self._pos = (0, 0)                 # 面板左上角在屏幕上的位置（内容窗口上面还多一块透明区）
         self._top = 0                      # 内容窗口上方给特效留的透明区高度
         self._bounce: Dict[str, float] = {}     # 键帽跳一下：键 -> 开始时间
+        self._egg: Optional[float] = None       # 彩蛋开始的时间（没在放就是 None）
         self._cap_dy: List[int] = []
         # 进程开了高 DPI 感知（见 theme.enable_dpi_awareness），Tk 的像素就是物理像素，
         # 按 96 DPI 设计的尺寸要跟着屏幕缩放放大；不跟主界面的「界面大小」走，悬浮窗有自己的大小设置
@@ -960,6 +963,7 @@ class OverlayWindow(tk.Toplevel):
         c.delete("all")
         self._cache.clear()
         self.effects.forget()
+        self._egg = None                           # 彩蛋的图形也跟着清掉了，用到时重建
         # 分两层时内容窗口比面板高出一块透明区，给特效里的鸽子飞（点击穿透、看不见）；
         # 用 scrollregion 把画布坐标往下挪，面板还是从 y=0 开始画，特效可以画到负的 y 上去
         self._top = px(84) if self._backdrop is not None else 0
@@ -1096,6 +1100,7 @@ class OverlayWindow(tk.Toplevel):
     def update_effects(self, now: float) -> bool:
         """每帧调一次（画完这一帧之后），返回还有没有东西在动。"""
         moving = self.effects.update(now)
+        moving = self._update_egg(now) or moving
         keys = self._layout.keys if self._layout else ()
         for index, (items, key) in enumerate(zip(self._caps, keys)):
             started = self._bounce.get(key)
@@ -1117,6 +1122,104 @@ class OverlayWindow(tk.Toplevel):
         self.effects.clear()
         for key in list(self._bounce):
             self._bounce[key] = -1e9          # 下一帧归位
+        self._egg = None
+        self.canvas.itemconfigure("egg", state="hidden")
+
+    # ------------------------------------------------------------------ #
+    # 彩蛋：鸽子飞到右上方，冒出对话气泡
+    # ------------------------------------------------------------------ #
+
+    EGG_S = 3.3
+
+    def show_egg(self, text: str, now: float) -> None:
+        if getattr(self, "_egg", None) is not None:
+            return                                   # 上一个还没放完
+        c = self.canvas
+        if not c.find_withtag("egg_bubble"):
+            c.create_polygon(0, 0, 0, 0, 0, 0, smooth=True, fill="#faf9f5", outline="",
+                             tags=("fx", "egg", "egg_bubble"))
+            c.create_polygon(0, 0, 0, 0, 0, 0, fill="#faf9f5", outline="", tags=("fx", "egg", "egg_tail"))
+            c.create_text(0, 0, text="", fill="#2c2c2a", anchor="e", tags=("fx", "egg", "egg_text"))
+            c.create_image(0, 0, tags=("fx", "egg", "egg_dove"))
+        c.itemconfigure("egg_text", text=text)
+        c.itemconfigure("egg", state="hidden")
+        self._egg = now
+
+    def _update_egg(self, now: float) -> bool:
+        started = getattr(self, "_egg", None)
+        if started is None:
+            return False
+        c = self.canvas
+        g = self.geo
+        px = g.px
+        t = now - started
+        if t >= self.EGG_S:
+            c.itemconfigure("egg", state="hidden")
+            self._egg = None
+            return False
+        start = (g.line_x, g.lane_mid)
+        perch = (g.w - px(36), -px(24))              # 面板右上角上方（在内容窗口多出来的透明区里）
+        mid = ((start[0] + perch[0]) / 2, min(start[1], perch[1]) - px(50))
+        # 鸽子：飞过去 → 点三下头 → 飞走
+        if t < 0.52:
+            u = _ease_out(t / 0.52)
+            if u < 0.5:
+                v = u / 0.5
+                x, y, scale = start[0] + (mid[0] - start[0]) * v, start[1] + (mid[1] - start[1]) * v, 0.4 + 0.7 * v
+            else:
+                v = (u - 0.5) / 0.5
+                x, y, scale = mid[0] + (perch[0] - mid[0]) * v, mid[1] + (perch[1] - mid[1]) * v, 1.1 - 0.1 * v
+        elif t < 2.7:
+            x, y, scale = perch[0], perch[1], 1.0
+            nod = t - 0.63
+            if 0 <= nod < 0.9:
+                bob = abs(math.sin(nod / 0.3 * math.pi))
+                y -= px(6) * bob
+                scale += 0.05 * bob
+        else:
+            u = min(1.0, (t - 2.7) / 0.52) ** 2
+            x, y = perch[0] + px(60) * u, perch[1] - px(70) * u
+            scale = 1.0 - 0.95 * u
+        image = self.effects.dove(px(30) * scale) if scale > 0.08 else None
+        if image is None:
+            c.itemconfigure("egg_dove", state="hidden")
+        else:
+            c.itemconfigure("egg_dove", image=image, state="normal")
+            c.coords("egg_dove", x, y)
+        # 气泡：0.48 秒弹出、抖两下，2.7 秒缩没
+        bt = t - 0.48
+        if bt < 0 or t >= 2.96:
+            for tag in ("egg_bubble", "egg_tail", "egg_text"):
+                c.itemconfigure(tag, state="hidden")
+        else:
+            if bt < 0.25:
+                size = _keyframes(bt / 0.25, [(0, .3), (.6, 1.1), (1, 1)])[0]
+            else:
+                size = 1.0
+            if t > 2.7:
+                size = max(0.0, 1.0 - (t - 2.7) / 0.26)
+            shake = 0
+            if 0.25 <= bt < 0.62:
+                shake = int(round(px(3) * math.sin((bt - 0.25) / 0.37 * 4 * math.pi)))
+            if size < 0.15:
+                for tag in ("egg_bubble", "egg_tail", "egg_text"):
+                    c.itemconfigure(tag, state="hidden")
+            else:
+                right = perch[0] - px(22) + shake
+                c.itemconfigure("egg_text", font=(_FONT_UI, -max(4, px(15 * size)), "bold"), state="normal")
+                c.coords("egg_text", right - px(12 * size), perch[1])
+                box = c.bbox("egg_text")
+                if box:
+                    x0, y0, x1, y1 = box[0] - px(12 * size), box[1] - px(6 * size), right, box[3] + px(6 * size)
+                    r = px(12 * size)
+                    c.coords("egg_bubble", *_rounded_points(x0, y0, x1, y1, r, r, r, r))
+                    cy = (y0 + y1) / 2
+                    c.coords("egg_tail", x1 - 1, cy - px(6 * size), x1 + px(9 * size), cy, x1 - 1, cy + px(6 * size))
+                    for tag in ("egg_bubble", "egg_tail"):
+                        c.itemconfigure(tag, state="normal")
+                    c.tag_raise("egg_text")
+        c.tag_raise("egg_dove")
+        return True
 
     def _draw_header(self, frame: Frame) -> None:
         g = self.geo
@@ -1200,6 +1303,8 @@ class OverlayWindow(tk.Toplevel):
             else:
                 head_fill, text_fill, outline = dark, bright, bright
                 tail_fill = blend(dark, bright, 0.25)
+                if index in frame.sore:
+                    outline = OV["danger"]
 
             cx = g.line_x + (slot.start - pos) * speed
             if cx + half > g.lane_right:
@@ -1420,6 +1525,8 @@ class OverlayController:
         self._preview_total = 1.0
         self._reported = False
         self.failed = False
+        self.egg: Optional[EggTrigger] = None
+        self._fx_pos: Optional[float] = None
 
     # ------------------------------------------------------------------ #
     # 窗口
@@ -1498,7 +1605,9 @@ class OverlayController:
         self._summary = ""
         self._verdict = None
         self._last_pos = 0.0
-        self._fx_pos: Optional[float] = None      # 自动演奏：上一帧的位置，用来找"这一帧走过判定线的音"
+        self._fx_pos: Optional[float] = None      # 上一帧的位置，用来找"这一帧走过判定线的音"
+        self.egg = EggTrigger(self.slots, guide=mode == "guide") \
+            if getattr(self.app.settings, "easter_egg", True) else None
         window.clear_effects()
         window.set_content(self.slots, layout)
         self._ensure_ticking()
@@ -1671,9 +1780,9 @@ class OverlayController:
             for verdict in judge.sweep(pos):
                 self._show_verdict(verdict, now)
 
-        if self.mode == "auto" and state == PlayState.PLAYING:
-            self._auto_hits(pos, now)
-        elif state != PlayState.PLAYING:
+        if state == PlayState.PLAYING:
+            self._crossed(pos, now)
+        else:
             self._fx_pos = None
 
         # 等待闸门：时钟停在下一个还没按对的音上
@@ -1693,6 +1802,7 @@ class OverlayController:
             sensing=self.watcher is not None or self.mode != "guide",
             verdict=self._verdict, verdict_age=(now - self._verdict_stamp) * 1000.0,
             stats=judge.status_text() if judge else "",
+            sore=frozenset(self.egg.sore) if self.egg is not None and self.mode == "guide" else frozenset(),
         )
 
     def _hit_effect(self, index: int, now: float) -> None:
@@ -1701,8 +1811,11 @@ class OverlayController:
         if 0 <= index < len(self.slots):
             self.window.effect_hit(self.slots[index].combo.key, now)
 
-    def _auto_hits(self, pos: float, now: float) -> None:
-        """自动演奏：这一帧里走过判定线的音都算按中了。跳得太远（拖了进度条）就不补放。"""
+    def _crossed(self, pos: float, now: float) -> None:
+        """
+        这一帧里走过判定线的音：自动演奏时都算按中了（放命中特效），两种模式都拿来数重复乐句（彩蛋）。
+        跳得太远（拖了进度条）就不补。
+        """
         last = self._fx_pos
         self._fx_pos = pos
         if last is None or not (0 < pos - last < 400):
@@ -1711,11 +1824,23 @@ class OverlayController:
         first = bisect.bisect_right(starts, last)
         stop = bisect.bisect_right(starts, pos)
         for index in range(first, stop):
-            self._hit_effect(index, now)
+            if self.mode == "auto":
+                self._hit_effect(index, now)
+            if self.egg is not None:
+                self._egg_fire(self.egg.on_passed(index), now)
+
+    def _egg_fire(self, reason: Optional[str], now: float) -> None:
+        if reason and self.window is not None:
+            self.window.show_egg(random.choice(EGG_LINES), now)
 
     def _show_verdict(self, verdict: Verdict, now: float) -> None:
         self._verdict = verdict
         self._verdict_stamp = now
+        if self.egg is not None:
+            if verdict.kind in Mark.HIT:
+                self.egg.on_hit(verdict.index)
+            elif verdict.kind in ("wrong", Mark.MISS):
+                self._egg_fire(self.egg.on_fail(verdict.index), now)
 
     def _focus(self, pos: float) -> Tuple[Optional[int], Optional[int]]:
         """「下一个该按」的音，以及再下一个。"""

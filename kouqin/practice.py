@@ -16,8 +16,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Iterable, List, Optional, Sequence, Tuple
+import time
+from dataclasses import dataclass, field
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from .layout import MouseMod
 
@@ -29,6 +30,9 @@ __all__ = [
     "Judge",
     "difficulty",
     "describe_mods",
+    "EGG_LINES",
+    "EggTrigger",
+    "repeat_triggers",
 ]
 
 #: 离音符起点这么近算「完美」（毫秒）
@@ -300,3 +304,108 @@ def difficulty(slots: Sequence) -> Tuple[int, str]:
     else:
         hint = "偶尔要换鼠标键"
     return stars, f"每秒 {per_second:.1f} 个音，{hint}"
+
+
+# --------------------------------------------------------------------------- #
+# 彩蛋：鸽子吐槽
+# --------------------------------------------------------------------------- #
+
+#: 彩蛋台词：触发时随机挑一句。想加台词就往这里加一行
+EGG_LINES: Tuple[str, ...] = (
+    "我他妈忘记几次啊",
+)
+
+
+def repeat_triggers(slots: Sequence, length: int = 8, nth: int = 4) -> Set[int]:
+    """
+    曲子里同一句旋律（连续 ``length`` 个音，键和鼠标键都一样）第 ``nth`` 次出现时，
+    这一句最后一个音的序号。每一句只算它的第 ``nth`` 次。
+
+    同一个键连按 ``length`` 下不算"一句旋律"；前后重叠的不重复计数
+    （"1 2 1 2 1 2 1 2 1 2" 里的 "1 2 1 2" 不会被数成好几次）；
+    一整段重复只在它开头那句满 ``nth`` 次时算一次。
+    """
+    seq = [(slot.combo.key, tuple(sorted(slot.combo.mods))) for slot in slots]
+    seen: Dict[tuple, Tuple[int, int]] = {}       # 乐句 -> (出现次数, 上一次结束的位置)
+    found: Set[int] = set()
+    for start in range(len(seq) - length + 1):
+        phrase = tuple(seq[start:start + length])
+        if len(set(phrase)) == 1:
+            continue
+        count, last_end = seen.get(phrase, (0, -1))
+        if start < last_end:
+            continue
+        count += 1
+        seen[phrase] = (count, start + length)
+        if count == nth:
+            found.add(start + length - 1)
+    # 一段比 length 长的重复段落会拆出好几句首尾相接的"重复"，它们在相邻的音上接连满 nth 次；
+    # 同一段只算开头那一下
+    return {index for index in found if index - 1 not in found}
+
+
+@dataclass
+class EggTrigger:
+    """
+    彩蛋什么时候跳出来（纯逻辑，不管画）。
+
+        曲子里同一句旋律第 4 次出现           自动演奏、跟弹都算
+        同一个音第 3 次没按对                  只有跟弹
+        连续 4 个音没按对                      只有跟弹
+
+    同一首曲子最多 ``max_per_song`` 次，两次之间至少隔 ``cooldown`` 秒，免得变成骚扰。
+    每个方法返回触发原因（要放彩蛋了），不放就返回 None。
+    """
+
+    slots: Sequence
+    guide: bool = False
+    max_per_song: int = 3
+    cooldown: float = 30.0
+    clock: Callable[[], float] = time.perf_counter
+    phrase_length: int = 8
+    phrase_nth: int = 4
+    fails: Dict[int, int] = field(default_factory=dict)
+    fired: int = 0
+    streak: int = 0
+    _last: float = -1e9
+
+    def __post_init__(self) -> None:
+        self.phrase_ends = repeat_triggers(self.slots, self.phrase_length, self.phrase_nth)
+
+    @property
+    def sore(self) -> Set[int]:
+        """栽满 2 次的音（再错一次就要被吐槽了），悬浮窗上描红边提醒。"""
+        return {index for index, count in self.fails.items() if count >= 2}
+
+    def on_passed(self, index: int) -> Optional[str]:
+        """第 ``index`` 个音走过了判定线。"""
+        if index in self.phrase_ends:
+            return self._fire("同一句旋律第 4 次出现")
+        return None
+
+    def on_hit(self, index: int) -> None:
+        self.streak = 0
+
+    def on_fail(self, index: int) -> Optional[str]:
+        """跟弹时第 ``index`` 个音漏了或按错了。"""
+        if not self.guide:
+            return None
+        self.fails[index] = self.fails.get(index, 0) + 1
+        self.streak += 1
+        if self.fails[index] == 3:
+            return self._fire("同一个音第 3 次没按对")
+        if self.streak >= 4:
+            reason = self._fire(f"连续 {self.streak} 个音没按对")
+            if reason:
+                self.streak = 0
+            return reason
+        return None
+
+    def _fire(self, reason: str) -> Optional[str]:
+        now = self.clock()
+        if self.fired >= self.max_per_song or now - self._last < self.cooldown:
+            return None
+        self.fired += 1
+        self._last = now
+        return reason
+

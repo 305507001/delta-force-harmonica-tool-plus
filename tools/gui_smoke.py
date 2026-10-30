@@ -124,6 +124,8 @@ class Smoke:
             self.step_pause_hotkey,
             self.step_hit_effects,
             self.step_hit_effects_check,
+            self.step_easter_egg,
+            self.step_easter_egg_check,
             self.step_hotkey_settings,
             self.step_seek_bar,
             self.step_seek_finish,
@@ -389,6 +391,37 @@ class Smoke:
         self.say(overlay.effects.spawned == before, "关掉命中特效后不再放")
         self.window.stop()
         self.window.settings.hit_effects = True
+        self.window.settings.speed = 4.0
+
+    def step_easter_egg(self) -> None:
+        self.window.settings.easter_egg = True
+        self._start_long_auto()
+        overlay = self.window.overlay
+        self.say(overlay.egg is not None, "开着彩蛋时，演奏开始就准备好触发条件")
+        overlay.window.show_egg("我他妈忘记几次啊", time.perf_counter())
+        deadline = time.time() + 1.2
+        while time.time() < deadline:
+            self.window.update()
+            time.sleep(0.01)
+        c = overlay.window.canvas
+        text = c.itemcget(c.find_withtag("egg_text")[0], "text") if c.find_withtag("egg_text") else ""
+        shown = [i for i in c.find_withtag("egg") if c.itemcget(i, "state") != "hidden"]
+        self.say(text == "我他妈忘记几次啊" and len(shown) >= 3, "彩蛋气泡和鸽子出来了", f"{len(shown)} 个图形")
+        self._egg_started = time.time()
+
+    def step_easter_egg_check(self) -> None:
+        while time.time() - self._egg_started < 2.6:
+            self.window.update()
+            time.sleep(0.02)
+        c = self.window.overlay.window.canvas
+        shown = [i for i in c.find_withtag("egg") if c.itemcget(i, "state") != "hidden"]
+        self.say(not shown, "彩蛋放完自己收起来", f"还剩 {len(shown)} 个")
+        self.window.stop()
+        self.window.settings.easter_egg = False
+        self._start_long_auto()
+        self.say(self.window.overlay.egg is None, "关掉彩蛋后不再准备触发")
+        self.window.stop()
+        self.window.settings.easter_egg = True
         self.window.settings.speed = 4.0
 
     def step_hotkey_settings(self) -> None:

@@ -753,6 +753,39 @@ def cmd_selftest(args) -> int:
         return f"内置曲目 {min(stars)}~{max(stars)} 星，快速跳八度片段 {hard} 星"
     check("跟弹难度估计", difficulty_check)
 
+    def egg_check():
+        from kouqin.practice import EggTrigger, repeat_triggers
+        # 一句 8 个音重复 5 遍，中间夹别的音：第 4 遍的最后一个音该触发，而且只触发这一次
+        phrase = "1 2 3 4 5 6 7 1'"
+        text = "T=240\n" + " ".join([phrase, "5 5"] * 5)
+        _, report = compile_notes(parse_jianpu(text).notes, layout, TIMING_PRESETS["normal"])
+        ends = repeat_triggers(report.slots, 8, 4)
+        assert ends == {3 * 10 + 7}, f"第 4 遍的结尾应在第 37 个音：{sorted(ends)}"
+        same = parse_jianpu("T=240\n" + "1 " * 40).notes
+        _, rep2 = compile_notes(same, layout, TIMING_PRESETS["normal"])
+        assert not repeat_triggers(rep2.slots, 8, 4), "同一个键连按不算一句旋律"
+
+        clock = [0.0]
+        egg = EggTrigger(report.slots, guide=True, clock=lambda: clock[0])
+        assert egg.on_fail(5) is None and egg.on_fail(5) is None and 5 in egg.sore, "栽 2 次应描红边"
+        egg.on_hit(6)
+        assert egg.on_fail(5), "同一个音第 3 次没按对应触发"
+        clock[0] = 10.0
+        for i in (8, 9, 10):
+            assert egg.on_fail(i) is None
+        assert egg.on_fail(11) is None, "离上次不到 30 秒，不该再触发"
+        clock[0] = 45.0
+        egg.streak = 3
+        assert egg.on_fail(12), "连续 4 个没按对应触发"
+        clock[0] = 80.0
+        assert egg.on_passed(37), "同一句旋律第 4 次出现应触发"
+        clock[0] = 200.0
+        assert egg.on_passed(37) is None, "一首曲子最多 3 次"
+        auto = EggTrigger(report.slots, guide=False, clock=lambda: 0.0)
+        assert auto.on_fail(1) is None and not auto.fails, "自动演奏不会按错，不算失误"
+        return "重复乐句第 4 次、同一个音第 3 次、连错 4 个都能触发；30 秒间隔和每首 3 次的上限有效"
+    check("彩蛋触发条件", egg_check)
+
     print("-" * 60)
     print("自检结果：" + ("全部通过 ✔" if ok else "存在失败项 ✘"))
     return 0 if ok else 1
